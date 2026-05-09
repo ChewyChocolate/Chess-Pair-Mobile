@@ -468,54 +468,54 @@ fun PlayerRow(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ResultSelector(
     currentResult: MatchResult?,
     onSelect: (MatchResult?) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Box {
-        AssistChip(
-            onClick = { expanded = true },
-            label = {
-                Text(
-                    when (currentResult) {
-                        null -> "Set result"
-                        MatchResult.WHITE_WIN -> "1-0"
-                        MatchResult.BLACK_WIN -> "0-1"
-                        MatchResult.DRAW -> "\u00BD-\u00BD"
-                        MatchResult.BYE -> "BYE"
-                    },
-                    style = MaterialTheme.typography.labelMedium
-                )
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.padding(vertical = 4.dp)) {
+        SegmentedButton(
+            selected = currentResult == MatchResult.WHITE_WIN,
+            onClick = {
+                if (currentResult == MatchResult.WHITE_WIN) onSelect(null)
+                else onSelect(MatchResult.WHITE_WIN)
             },
-            modifier = Modifier.padding(vertical = 4.dp)
-        )
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                leadingIcon = { Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = Color(0xFF2E7D32)) },
-                text = { Text("1-0 (White wins)") },
-                onClick = { onSelect(MatchResult.WHITE_WIN); expanded = false }
+            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
+            colors = SegmentedButtonDefaults.colors(
+                activeContainerColor = Color(0xFF2E7D32).copy(alpha = 0.15f),
+                activeContentColor = Color(0xFF2E7D32)
             )
-            DropdownMenuItem(
-                leadingIcon = { Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = Color(0xFF2E7D32)) },
-                text = { Text("0-1 (Black wins)") },
-                onClick = { onSelect(MatchResult.BLACK_WIN); expanded = false }
+        ) {
+            Text("1-0", fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        SegmentedButton(
+            selected = currentResult == MatchResult.DRAW,
+            onClick = {
+                if (currentResult == MatchResult.DRAW) onSelect(null)
+                else onSelect(MatchResult.DRAW)
+            },
+            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
+            colors = SegmentedButtonDefaults.colors(
+                activeContainerColor = Color(0xFFE65100).copy(alpha = 0.15f),
+                activeContentColor = Color(0xFFE65100)
             )
-            DropdownMenuItem(
-                leadingIcon = { Icon(Icons.Default.Minimize, null, Modifier.size(18.dp), tint = Color(0xFFE65100)) },
-                text = { Text("\u00BD-\u00BD (Draw)") },
-                onClick = { onSelect(MatchResult.DRAW); expanded = false }
+        ) {
+            Text("\u00BD-\u00BD", fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        SegmentedButton(
+            selected = currentResult == MatchResult.BLACK_WIN,
+            onClick = {
+                if (currentResult == MatchResult.BLACK_WIN) onSelect(null)
+                else onSelect(MatchResult.BLACK_WIN)
+            },
+            shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
+            colors = SegmentedButtonDefaults.colors(
+                activeContainerColor = Color(0xFFC62828).copy(alpha = 0.15f),
+                activeContentColor = Color(0xFFC62828)
             )
-            if (currentResult != null) {
-                HorizontalDivider()
-                DropdownMenuItem(
-                    leadingIcon = { Icon(Icons.Default.Clear, null, Modifier.size(18.dp)) },
-                    text = { Text("Clear result") },
-                    onClick = { onSelect(null); expanded = false }
-                )
-            }
+        ) {
+            Text("0-1", fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }
