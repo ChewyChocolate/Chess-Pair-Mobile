@@ -61,7 +61,7 @@ fun PlayersScreen(
             )
         },
         floatingActionButton = {
-            if (isSetup) {
+            if (isSetup || tournamentStatus == "ACTIVE") {
                 FloatingActionButton(onClick = { showAddDialog = true }) {
                     Icon(Icons.Default.PersonAdd, "Add Player")
                 }
@@ -74,7 +74,7 @@ fun PlayersScreen(
                 QuickAddBar(onAdd = { name ->
                     onAddPlayer(name, null, null, null)
                 })
-            } else {
+            } else if (tournamentStatus == "COMPLETED") {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -277,12 +277,12 @@ fun PlayerCard(
                     }
                 }
             }
+            if (player.withdrawn) {
+                TextButton(onClick = onRejoin) { Text("Rejoin") }
+            } else {
+                TextButton(onClick = onWithdraw) { Text("Withdraw") }
+            }
             if (isSetup) {
-                if (player.withdrawn) {
-                    TextButton(onClick = onRejoin) { Text("Rejoin") }
-                } else {
-                    TextButton(onClick = onWithdraw) { Text("Withdraw") }
-                }
                 Spacer(Modifier.width(4.dp))
                 IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Default.Close, "Remove", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
@@ -326,8 +326,7 @@ fun AddPlayerDialog(
                         onDone = {
                             if (name.isNotBlank()) {
                                 onAdd(name.trim(), rating.toIntOrNull(), title.ifBlank { null }, club.ifBlank { null })
-                                name = ""
-                                focusRequester.requestFocus()
+                                onDismiss()
                             }
                         }
                     )
@@ -342,15 +341,14 @@ fun AddPlayerDialog(
                 onClick = {
                     if (name.isNotBlank()) {
                         onAdd(name.trim(), rating.toIntOrNull(), title.ifBlank { null }, club.ifBlank { null })
-                        name = ""
-                        focusRequester.requestFocus()
+                        onDismiss()
                     }
                 },
                 enabled = name.isNotBlank()
-            ) { Text("Add & Next") }
+            ) { Text("Add") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Done") }
+            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
 }

@@ -159,7 +159,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     // ---- Player management (SETUP only) ----
 
     fun addPlayer(name: String, rating: Int? = null, title: String? = null, club: String? = null) {
-        if (!requireStatus(TournamentStatus.SETUP)) return
+        if (!requireStatus(TournamentStatus.SETUP, TournamentStatus.ACTIVE)) return
         val tid = _activeTournamentId.value ?: return
         val p = PlayerEntity(
             id = UUID.randomUUID().toString(),
@@ -427,6 +427,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         val m1 = _matches.value.find { it.id == matchId1 } ?: return
         val m2 = _matches.value.find { it.id == matchId2 } ?: return
 
+        if (m1.blackId == null || m2.blackId == null) return
         val p1Id = if (isWhite1) m1.whiteId else m1.blackId
         val p2Id = if (isWhite2) m2.whiteId else m2.blackId
         if (p1Id == null || p2Id == null) return

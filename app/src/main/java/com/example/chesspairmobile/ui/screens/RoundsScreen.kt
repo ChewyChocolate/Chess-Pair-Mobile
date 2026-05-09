@@ -364,7 +364,7 @@ fun MatchCard(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
-                            "${match.boardNumber ?: "?"}",
+                            if (isBye) "BYE" else "${match.boardNumber ?: "?"}",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -408,7 +408,7 @@ fun MatchCard(
                     }
                 }
 
-                if (!isSwapMode && showResults) {
+                if (!isSwapMode && showResults && !isBye) {
                     ResultSelector(
                         currentResult = match.result?.let { try { MatchResult.valueOf(it) } catch (_: Exception) { null } },
                         onSelect = onUpdateResult

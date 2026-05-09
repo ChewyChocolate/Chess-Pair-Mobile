@@ -412,7 +412,7 @@ fun generateSwiss(
 }
 
 fun generateRoundRobin(players: List<Player>, round: Int): List<Match> {
-    val activePlayers = players.filter { !it.withdrawn }
+    val activePlayers = players.filter { !it.withdrawn && !it.requestedByes.contains(round) }
     val matches = mutableListOf<Match>()
     val n = activePlayers.size
     val isOdd = n % 2 != 0
@@ -438,7 +438,8 @@ fun generateRoundRobin(players: List<Player>, round: Int): List<Match> {
                     round = round,
                     whiteId = realPlayer.id,
                     blackId = null,
-                    boardNumber = i + 1
+                    result = MatchResult.BYE,
+                    boardNumber = 999
                 )
             )
         } else {
@@ -460,7 +461,7 @@ fun generateRoundRobin(players: List<Player>, round: Int): List<Match> {
 
 fun generateKnockout(players: List<Player>, matches: List<Match>, round: Int): List<Match> {
     if (round == 1) {
-        val activePlayers = players.filter { it.active && !it.withdrawn }
+        val activePlayers = players.filter { it.active && !it.withdrawn && !it.requestedByes.contains(round) }
         val n = activePlayers.size
         val nextPowerOfTwo = 2.0.pow(ceil(log2(n.toDouble()))).toInt()
         val byesCount = nextPowerOfTwo - n
