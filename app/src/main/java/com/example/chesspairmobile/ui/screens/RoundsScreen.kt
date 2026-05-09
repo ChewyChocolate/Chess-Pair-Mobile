@@ -55,6 +55,7 @@ fun RoundsScreen(
     var swapColor1 by remember { mutableStateOf<Boolean?>(null) }
     var showCompleteConfirm by remember { mutableStateOf(false) }
     var showRollbackConfirm by remember { mutableStateOf(false) }
+    var editingPastRound by remember { mutableStateOf(false) }
 
     val isSetup = tournament.status == "SETUP"
     val isActive = tournament.status == "ACTIVE"
@@ -193,16 +194,31 @@ fun RoundsScreen(
                                 }
                             }
                         } else if (selectedRound < currentRound) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant
-                            ) {
-                                Text(
-                                    "Completed",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant
+                                ) {
+                                    Text(
+                                        "Completed",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                IconButton(
+                                    onClick = { editingPastRound = !editingPastRound },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        if (editingPastRound) Icons.Default.Lock else Icons.Default.Edit,
+                                        if (editingPastRound) "Lock" else "Edit",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
+                        } else if (selectedRound > currentRound) {
+                            // Future round - no action
                         }
                     }
                 }
@@ -261,7 +277,7 @@ fun RoundsScreen(
                                     swapColor1 = null
                                 }
                             },
-                            showResults = selectedRound <= currentRound
+                            showResults = (selectedRound == currentRound && isActive) || editingPastRound
                         )
                     }
                 }
@@ -408,7 +424,32 @@ fun MatchCard(
                     }
                 }
 
-                if (!isSwapMode && showResults && !isBye) {
+            }
+            if (!showResults && match.result != null && !isBye) {
+                Spacer(Modifier.height(6.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    val (label, color) = when (match.result) {
+                        "WHITE_WIN" -> "1-0" to Color(0xFF2E7D32)
+                        "BLACK_WIN" -> "0-1" to Color(0xFF2E7D32)
+                        "DRAW" -> "\u00BD-\u00BD" to Color(0xFF546E7A)
+                        else -> null to null
+                    }
+                    if (label != null && color != null) {
+                        Surface(shape = RoundedCornerShape(6.dp), color = color.copy(alpha = 0.12f)) {
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                color = color
+                            )
+                        }
+                    }
+                }
+            }
+            if (!isSwapMode && showResults && !isBye) {
+                Spacer(Modifier.height(6.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     ResultSelector(
                         currentResult = match.result?.let { try { MatchResult.valueOf(it) } catch (_: Exception) { null } },
                         onSelect = onUpdateResult
@@ -497,8 +538,8 @@ fun ResultSelector(
             },
             shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
             colors = SegmentedButtonDefaults.colors(
-                activeContainerColor = Color(0xFFE65100).copy(alpha = 0.15f),
-                activeContentColor = Color(0xFFE65100)
+                activeContainerColor = Color(0xFF546E7A).copy(alpha = 0.15f),
+                activeContentColor = Color(0xFF546E7A)
             )
         ) {
             Text("\u00BD-\u00BD", fontWeight = FontWeight.Bold, maxLines = 1)

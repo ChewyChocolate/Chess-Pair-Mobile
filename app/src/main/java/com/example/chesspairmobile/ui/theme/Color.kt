@@ -24,7 +24,7 @@ val ChessSilver = Color(0xFFB0BEC5)
 // Result colors
 val WinGreen = Color(0xFF2E7D32)
 val LossRed = Color(0xFFC62828)
-val DrawOrange = Color(0xFFEF6C00)
+val DrawGray = Color(0xFF546E7A)
 val ByeBlue = Color(0xFF1565C0)
 // Standings podium colors
 val GoldMedal = Color(0xFFFFD700)
