@@ -33,7 +33,7 @@ data class Match(
 )
 
 enum class MatchResult {
-    WHITE_WIN, BLACK_WIN, DRAW, BYE, FORFEIT_WHITE, FORFEIT_BLACK
+    WHITE_WIN, BLACK_WIN, DRAW, BYE
 }
 
 data class ForcedPairing(

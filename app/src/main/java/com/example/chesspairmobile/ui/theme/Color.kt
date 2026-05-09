@@ -26,8 +26,6 @@ val WinGreen = Color(0xFF2E7D32)
 val LossRed = Color(0xFFC62828)
 val DrawOrange = Color(0xFFEF6C00)
 val ByeBlue = Color(0xFF1565C0)
-val ForfeitGray = Color(0xFF546E7A)
-
 // Standings podium colors
 val GoldMedal = Color(0xFFFFD700)
 val SilverMedal = Color(0xFFC0C0C0)

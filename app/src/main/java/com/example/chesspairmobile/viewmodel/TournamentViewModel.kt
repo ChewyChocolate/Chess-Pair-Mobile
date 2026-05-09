@@ -741,8 +741,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
                         MatchResult.WHITE_WIN -> if (isW) matchGPW++ else matchGPB++
                         MatchResult.BLACK_WIN -> if (isW) matchGPB++ else matchGPW++
                         MatchResult.DRAW -> { matchGPW += 0.5; matchGPB += 0.5 }
-                        MatchResult.FORFEIT_WHITE -> if (isW) matchGPB++ else matchGPW++
-                        MatchResult.FORFEIT_BLACK -> if (isW) matchGPW++ else matchGPB++
                         else -> {}
                     }
                 }

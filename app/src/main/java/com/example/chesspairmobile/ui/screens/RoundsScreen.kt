@@ -482,8 +482,6 @@ fun ResultBadge(result: String) {
         "WHITE_WIN" -> "1-0" to Color(0xFF2E7D32)
         "BLACK_WIN" -> "0-1" to Color(0xFF2E7D32)
         "DRAW" -> "\u00BD-\u00BD" to Color(0xFFE65100)
-        "FORFEIT_BLACK" -> "1-0F" to Color(0xFFC62828)
-        "FORFEIT_WHITE" -> "0-1F" to Color(0xFFC62828)
         "BYE" -> "BYE" to MaterialTheme.colorScheme.primary
         else -> "" to Color.Gray
     }
@@ -521,8 +519,6 @@ fun ResultSelector(
                         MatchResult.BLACK_WIN -> "0-1"
                         MatchResult.DRAW -> "\u00BD-\u00BD"
                         MatchResult.BYE -> "BYE"
-                        MatchResult.FORFEIT_WHITE -> "0-1F"
-                        MatchResult.FORFEIT_BLACK -> "1-0F"
                     },
                     style = MaterialTheme.typography.labelMedium
                 )
@@ -544,17 +540,6 @@ fun ResultSelector(
                 leadingIcon = { Icon(Icons.Default.Minimize, null, Modifier.size(18.dp), tint = Color(0xFFE65100)) },
                 text = { Text("\u00BD-\u00BD (Draw)") },
                 onClick = { onSelect(MatchResult.DRAW); expanded = false }
-            )
-            HorizontalDivider()
-            DropdownMenuItem(
-                leadingIcon = { Icon(Icons.Default.Flag, null, Modifier.size(18.dp), tint = Color(0xFFC62828)) },
-                text = { Text("1-0 Forfeit (Black forfeits)") },
-                onClick = { onSelect(MatchResult.FORFEIT_BLACK); expanded = false }
-            )
-            DropdownMenuItem(
-                leadingIcon = { Icon(Icons.Default.Flag, null, Modifier.size(18.dp), tint = Color(0xFFC62828)) },
-                text = { Text("0-1 Forfeit (White forfeits)") },
-                onClick = { onSelect(MatchResult.FORFEIT_WHITE); expanded = false }
             )
             if (currentResult != null) {
                 HorizontalDivider()

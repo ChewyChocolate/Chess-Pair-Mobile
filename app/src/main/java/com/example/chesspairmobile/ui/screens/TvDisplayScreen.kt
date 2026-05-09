@@ -248,8 +248,6 @@ fun TvMatchRow(board: Int, whiteName: String?, blackName: String?, result: Strin
                 "BLACK_WIN" -> "0-1"
                 "DRAW" -> "\u00BD-\u00BD"
                 "BYE" -> "BYE"
-                "FORFEIT_WHITE" -> "0-1F"
-                "FORFEIT_BLACK" -> "1-0F"
                 else -> "vs"
             }
             Text(

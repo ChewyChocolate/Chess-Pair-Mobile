@@ -92,18 +92,6 @@ fun calculateScores(
                     roundScores[m.whiteId] = (roundScores[m.whiteId] ?: 0.0) + pointsForDraw
                     roundScores[m.blackId] = (roundScores[m.blackId] ?: 0.0) + pointsForDraw
                 }
-                MatchResult.FORFEIT_WHITE -> {
-                    data.scores[m.blackId] = (data.scores[m.blackId] ?: 0.0) + pointsForWin
-                    data.scores[m.whiteId] = (data.scores[m.whiteId] ?: 0.0) + pointsForLoss
-                    roundScores[m.blackId] = (roundScores[m.blackId] ?: 0.0) + pointsForWin
-                    roundScores[m.whiteId] = (roundScores[m.whiteId] ?: 0.0) + pointsForLoss
-                }
-                MatchResult.FORFEIT_BLACK -> {
-                    data.scores[m.whiteId] = (data.scores[m.whiteId] ?: 0.0) + pointsForWin
-                    data.scores[m.blackId] = (data.scores[m.blackId] ?: 0.0) + pointsForLoss
-                    roundScores[m.whiteId] = (roundScores[m.whiteId] ?: 0.0) + pointsForWin
-                    roundScores[m.blackId] = (roundScores[m.blackId] ?: 0.0) + pointsForLoss
-                }
                 MatchResult.BYE -> { /* handled separately */ }
             }
         } else if (m.whiteId != null && m.result == MatchResult.BYE) {
@@ -507,8 +495,8 @@ fun generateKnockout(players: List<Player>, matches: List<Match>, round: Int): L
 
     prevRoundMatches.forEach { m ->
         when (m.result) {
-            MatchResult.WHITE_WIN, MatchResult.FORFEIT_BLACK, MatchResult.BYE -> m.whiteId?.let { winners.add(it) }
-            MatchResult.BLACK_WIN, MatchResult.FORFEIT_WHITE -> m.blackId?.let { winners.add(it) }
+            MatchResult.WHITE_WIN, MatchResult.BYE -> m.whiteId?.let { winners.add(it) }
+            MatchResult.BLACK_WIN -> m.blackId?.let { winners.add(it) }
             MatchResult.DRAW -> m.whiteId?.let { winners.add(it) }
             else -> {}
         }
@@ -585,8 +573,6 @@ fun calculateTeamScores(
                         MatchResult.WHITE_WIN -> if (isTeamAWhite) teamAGP++ else teamBGP++
                         MatchResult.BLACK_WIN -> if (isTeamAWhite) teamBGP++ else teamAGP++
                         MatchResult.DRAW -> { teamAGP += 0.5; teamBGP += 0.5 }
-                        MatchResult.FORFEIT_WHITE -> if (isTeamAWhite) teamBGP++ else teamAGP++
-                        MatchResult.FORFEIT_BLACK -> if (isTeamAWhite) teamAGP++ else teamBGP++
                         MatchResult.BYE -> {}
                         null -> {}
                     }

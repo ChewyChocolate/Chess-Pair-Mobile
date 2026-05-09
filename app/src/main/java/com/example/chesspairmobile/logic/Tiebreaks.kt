@@ -32,14 +32,14 @@ fun calculateStandings(
             if (m.whiteId == p.id) {
                 val oppScore = data.scores[m.blackId] ?: 0.0
                 when (m.result) {
-                    MatchResult.WHITE_WIN, MatchResult.FORFEIT_BLACK -> sb += oppScore
+                    MatchResult.WHITE_WIN -> sb += oppScore
                     MatchResult.DRAW -> sb += oppScore / 2
                     else -> {}
                 }
             } else if (m.blackId == p.id) {
                 val oppScore = data.scores[m.whiteId] ?: 0.0
                 when (m.result) {
-                    MatchResult.BLACK_WIN, MatchResult.FORFEIT_WHITE -> sb += oppScore
+                    MatchResult.BLACK_WIN -> sb += oppScore
                     MatchResult.DRAW -> sb += oppScore / 2
                     else -> {}
                 }
@@ -50,8 +50,7 @@ fun calculateStandings(
         matchesToProcess.forEach { m ->
             if (m.result == MatchResult.WHITE_WIN && m.whiteId == p.id) mostWins++
             if (m.result == MatchResult.BLACK_WIN && m.blackId == p.id) mostWins++
-            if (m.result == MatchResult.FORFEIT_WHITE && m.blackId == p.id) mostWins++
-            if (m.result == MatchResult.FORFEIT_BLACK && m.whiteId == p.id) mostWins++
+
         }
 
         PlayerStanding(
@@ -78,14 +77,14 @@ fun calculateStandings(
                         if (match?.result != null) {
                             if (match.whiteId == a.player.id) {
                                 when (match.result) {
-                                    MatchResult.WHITE_WIN, MatchResult.FORFEIT_BLACK -> return@thenComparator -1
-                                    MatchResult.BLACK_WIN, MatchResult.FORFEIT_WHITE -> return@thenComparator 1
+                                    MatchResult.WHITE_WIN -> return@thenComparator -1
+                                    MatchResult.BLACK_WIN -> return@thenComparator 1
                                     else -> {}
                                 }
                             } else {
                                 when (match.result) {
-                                    MatchResult.BLACK_WIN, MatchResult.FORFEIT_WHITE -> return@thenComparator -1
-                                    MatchResult.WHITE_WIN, MatchResult.FORFEIT_BLACK -> return@thenComparator 1
+                                    MatchResult.BLACK_WIN -> return@thenComparator -1
+                                    MatchResult.WHITE_WIN -> return@thenComparator 1
                                     else -> {}
                                 }
                             }
