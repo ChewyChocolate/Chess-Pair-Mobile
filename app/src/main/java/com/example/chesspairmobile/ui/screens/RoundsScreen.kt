@@ -415,14 +415,6 @@ fun MatchCard(
                     )
                 }
             }
-
-            // Show result badge if set
-            if (match.result != null && !isBye && !isSwapMode) {
-                Spacer(Modifier.height(6.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    ResultBadge(match.result!!)
-                }
-            }
         }
     }
 }
@@ -473,31 +465,6 @@ fun PlayerRow(
                 )
             }
         }
-    }
-}
-
-@Composable
-fun ResultBadge(result: String) {
-    val (label, color) = when (result) {
-        "WHITE_WIN" -> "1-0" to Color(0xFF2E7D32)
-        "BLACK_WIN" -> "0-1" to Color(0xFF2E7D32)
-        "DRAW" -> "\u00BD-\u00BD" to Color(0xFFE65100)
-        "BYE" -> "BYE" to MaterialTheme.colorScheme.primary
-        else -> "" to Color.Gray
-    }
-    if (label.isEmpty()) return
-
-    Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = color.copy(alpha = 0.12f)
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            color = color
-        )
     }
 }
 
