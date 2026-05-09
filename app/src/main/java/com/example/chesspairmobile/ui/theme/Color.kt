@@ -33,7 +33,7 @@ val GoldMedal = Color(0xFFFFD700)
 val SilverMedal = Color(0xFFC0C0C0)
 val BronzeMedal = Color(0xFFCD7F32)
 
-private val DarkColors = darkColorScheme(
+internal val DarkColors = darkColorScheme(
     primary = ChessGold,
     onPrimary = Color.Black,
     primaryContainer = Color(0xFF4E342E),
@@ -55,7 +55,7 @@ private val DarkColors = darkColorScheme(
     onError = Color.White
 )
 
-private val LightColors = lightColorScheme(
+internal val LightColors = lightColorScheme(
     primary = ChessBrown,
     onPrimary = Color.White,
     primaryContainer = ChessTan,

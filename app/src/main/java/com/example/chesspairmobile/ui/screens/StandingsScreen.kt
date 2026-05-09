@@ -1,16 +1,21 @@
 package com.example.chesspairmobile.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.example.chesspairmobile.data.db.MatchEntity
 import com.example.chesspairmobile.data.db.PlayerEntity
@@ -29,14 +34,24 @@ fun StandingsScreen(
 ) {
     if (tournament == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No tournament selected")
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Leaderboard, null, Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                Spacer(Modifier.height(16.dp))
+                Text("No tournament selected", style = MaterialTheme.typography.headlineSmall)
+            }
         }
         return
     }
 
     if (tournament.status == "SETUP") {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Tournament hasn't started yet", style = MaterialTheme.typography.bodyLarge)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Leaderboard, null, Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                Spacer(Modifier.height(16.dp))
+                Text("Tournament hasn't started yet", style = MaterialTheme.typography.bodyLarge)
+                Spacer(Modifier.height(4.dp))
+                Text("Standings will appear after Round 1 is complete", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         return
     }
@@ -90,105 +105,151 @@ fun StandingsScreen(
         )
     }
 
-    var selectedRound by remember { mutableIntStateOf(tournament.currentRound) }
+    var selectedRound by remember { mutableStateOf(tournament.currentRound) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Standings") },
-                actions = {
-                    val csvData = remember(standings) {
-                        "Rank,Name,Rating,Score,Buchholz,Median,S-B,MostWins\n" +
-                        standings.mapIndexed { idx, s ->
-                            "${idx + 1},${s.player.name},${s.player.rating ?: ""},${s.score},${s.buchholz},${s.medianBuchholz},${s.sonnebornBerger},${s.mostWins}"
-                        }.joinToString("\n")
-                    }
-                    IconButton(onClick = { /* Export CSV - handled via share intent */ }) {
-                        Icon(Icons.Default.FileDownload, "Export CSV")
-                    }
-                }
+                title = { Text("Standings") }
             )
         }
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
+            modifier = Modifier.fillMaxSize().padding(padding)
         ) {
             // Round selector
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.Center
+            Surface(
+                Modifier.fillMaxWidth(),
+                tonalElevation = 1.dp
             ) {
-                for (r in 1..tournament.currentRound) {
-                    FilterChip(
-                        selected = selectedRound == r,
-                        onClick = { selectedRound = r },
-                        label = { Text("R$r") },
-                        modifier = Modifier.padding(horizontal = 2.dp)
-                    )
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        for (r in 1..tournament.currentRound) {
+                            FilterChip(
+                                selected = selectedRound == r,
+                                onClick = { selectedRound = r },
+                                label = { Text("Round $r") },
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+                        }
+                    }
+                    HorizontalDivider()
                 }
             }
 
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-
             // Table header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            Surface(
+                Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
             ) {
-                Text("#", Modifier.width(32.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                Text("Name", Modifier.weight(2f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                Text("Pts", Modifier.weight(0.6f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                Text("BH", Modifier.weight(0.6f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                Text("S-B", Modifier.weight(0.6f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                Text("Wins", Modifier.weight(0.6f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("#", Modifier.width(36.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text("Name", Modifier.weight(2f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Text("Pts", Modifier.weight(0.7f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text("BH", Modifier.weight(0.7f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text("S-B", Modifier.weight(0.7f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                }
             }
-
-            HorizontalDivider()
 
             LazyColumn {
                 itemsIndexed(standings) { index, standing ->
                     StandingRow(index = index, standing = standing)
                 }
+                item { Spacer(Modifier.height(16.dp)) }
             }
         }
     }
 }
 
+val GoldMedal = Color(0xFFFFD700)
+val SilverMedal = Color(0xFFC0C0C0)
+val BronzeMedal = Color(0xFFCD7F32)
+
 @Composable
 fun StandingRow(index: Int, standing: PlayerStanding) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            "${index + 1}",
-            Modifier.width(32.dp),
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center
-        )
-
-        Column(Modifier.weight(2f)) {
-            Text(standing.player.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-            standing.player.rating?.let {
-                Text("$it", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-
-        Text("${standing.score}", Modifier.weight(0.6f), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
-
-        val buchholz = "%.1f".format(standing.buchholz)
-        Text(buchholz, Modifier.weight(0.6f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
-
-        val sb = "%.2f".format(standing.sonnebornBerger)
-        Text(sb, Modifier.weight(0.6f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
-
-        Text("${standing.mostWins}", Modifier.weight(0.6f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+    val podiumColor = when (index) {
+        0 -> GoldMedal
+        1 -> SilverMedal
+        2 -> BronzeMedal
+        else -> null
     }
-    HorizontalDivider()
+
+    val bgColor = if (index % 2 == 0) {
+        MaterialTheme.colorScheme.surface
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth().then(if (standing.player.withdrawn) Modifier.alpha(0.55f) else Modifier),
+        color = bgColor
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Rank with optional podium
+            if (podiumColor != null) {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = podiumColor.copy(alpha = 0.15f),
+                    modifier = Modifier.width(36.dp)
+                ) {
+                    Text(
+                        "${index + 1}",
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        color = podiumColor
+                    )
+                }
+            } else {
+                Text(
+                    "${index + 1}",
+                    Modifier.width(36.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Column(Modifier.weight(2f)) {
+                Text(
+                    standing.player.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    textDecoration = if (standing.player.withdrawn) TextDecoration.LineThrough else TextDecoration.None
+                )
+                standing.player.rating?.let {
+                    Text("$it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            Text(
+                "${standing.score}",
+                Modifier.weight(0.7f),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+
+            val buchholz = "%.1f".format(standing.buchholz)
+            Text(buchholz, Modifier.weight(0.7f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+
+            val sb = "%.2f".format(standing.sonnebornBerger)
+            Text(sb, Modifier.weight(0.7f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+        }
+    }
 }

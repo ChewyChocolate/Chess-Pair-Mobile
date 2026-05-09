@@ -20,6 +20,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.compose.ui.unit.dp
+import com.example.chesspairmobile.data.db.Converters
 import com.example.chesspairmobile.data.models.*
 import com.example.chesspairmobile.ui.screens.*
 import com.example.chesspairmobile.ui.theme.ChessPairMobileTheme
@@ -44,6 +45,7 @@ data class NavItem(
     val selectedIcon: ImageVector
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChessPairApp() {
     val viewModel: TournamentViewModel = viewModel()
@@ -89,6 +91,24 @@ fun ChessPairApp() {
     var showTvDialog by remember { mutableStateOf(false) }
 
     Scaffold(
+        topBar = {
+            if (activeTournament != null && !isTvMode) {
+                TopAppBar(
+                    title = { Text(activeTournament!!.name, maxLines = 1) },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                navController.navigate("tv") {
+                                    launchSingleTop = true
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Tv, "TV Display")
+                        }
+                    }
+                )
+            }
+        },
         bottomBar = {
             if (activeTournament != null && !isTvMode) {
                 NavigationBar {
@@ -151,7 +171,14 @@ fun ChessPairApp() {
                     tournament = activeTournament,
                     playerCount = players.size,
                     teamCount = teams.size,
-                    matchCount = matches.size
+                    matchCount = matches.size,
+                    onNavigate = { route ->
+                        navController.navigate(route) {
+                            popUpTo("dashboard") { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
                 )
             }
 
@@ -178,6 +205,14 @@ fun ChessPairApp() {
                     onAddTeam = { name -> viewModel.addTeam(name) },
                     onAssignPlayer = { teamId, playerId ->
                         viewModel.assignPlayerToTeam(teamId, playerId)
+                    },
+                    onRemoveFromTeam = { teamId, playerId ->
+                        val team = teams.find { it.id == teamId } ?: return@TeamsScreen
+                        val ids = viewModel.run {
+                            val conv = Converters()
+                            conv.toStringList(team.playerIds).toMutableList().also { it.remove(playerId) }
+                        }
+                        viewModel.updateTeam(team.copy(playerIds = Converters().fromStringList(ids)))
                     }
                 )
             }
@@ -213,10 +248,5 @@ fun ChessPairApp() {
                 // TV mode is rendered outside NavHost for full-screen immersion
             }
         }
-    }
-
-    // TV Display button in top bar
-    if (activeTournament != null && !isTvMode) {
-        // TV mode accessible via direct navigation or intent
     }
 }
