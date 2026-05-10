@@ -252,6 +252,10 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         updatePlayer(player.copy(withdrawn = false))
     }
 
+    fun forfeitPlayer(id: String) {
+        withdrawPlayer(id)
+    }
+
     // ---- Team management ----
 
     fun addTeam(name: String) {

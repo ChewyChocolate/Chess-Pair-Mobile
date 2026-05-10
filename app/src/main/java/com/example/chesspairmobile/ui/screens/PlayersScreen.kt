@@ -44,6 +44,8 @@ fun PlayersScreen(
     var showClearConfirm by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     val isSetup = tournamentStatus == "SETUP"
+    val isActive = tournamentStatus == "ACTIVE"
+    val canEdit = isSetup || isActive
 
     val filteredPlayers = remember(players, searchQuery) {
         if (searchQuery.isBlank()) players
@@ -73,7 +75,7 @@ fun PlayersScreen(
             )
         },
         floatingActionButton = {
-            if (isSetup) {
+            if (canEdit) {
                 FloatingActionButton(onClick = { showAddDialog = true }) {
                     Icon(Icons.Default.PersonAdd, "Add Player")
                 }
@@ -81,8 +83,8 @@ fun PlayersScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            // Quick-add bar for setup
-            if (isSetup) {
+            // Quick-add bar for setup / active
+            if (canEdit) {
                 QuickAddBar(onAdd = { name -> onAddPlayer(name, null, null, null) })
             } else {
                 Row(
@@ -91,7 +93,7 @@ fun PlayersScreen(
                 ) {
                     Icon(Icons.Default.Lock, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(8.dp))
-                    Text("Player roster is locked during tournament", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Tournament is completed — roster is locked", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider()
             }
@@ -137,7 +139,7 @@ fun PlayersScreen(
                         Icon(Icons.Default.People, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
                         Spacer(Modifier.height(12.dp))
                         Text("No players added yet", style = MaterialTheme.typography.bodyLarge)
-                        if (isSetup) {
+                        if (canEdit) {
                             Spacer(Modifier.height(4.dp))
                             Text("Type a name above or tap + to add", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -149,6 +151,7 @@ fun PlayersScreen(
                         PlayerCard(
                             player = player,
                             isSetup = isSetup,
+                            canEdit = canEdit,
                             onRemove = { onRemovePlayer(player.id) },
                             onWithdraw = { onWithdrawPlayer(player.id) },
                             onRejoin = { onRejoinPlayer(player.id) },
@@ -239,6 +242,7 @@ fun QuickAddBar(onAdd: (String) -> Unit) {
 fun PlayerCard(
     player: PlayerEntity,
     isSetup: Boolean,
+    canEdit: Boolean = isSetup,
     onRemove: () -> Unit,
     onWithdraw: () -> Unit,
     onRejoin: () -> Unit,
@@ -305,15 +309,17 @@ fun PlayerCard(
                         tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
                 }
             }
-            if (isSetup) {
+            if (canEdit) {
                 if (player.withdrawn) {
                     TextButton(onClick = onRejoin) { Text("Rejoin") }
                 } else {
-                    TextButton(onClick = onWithdraw) { Text("Withdraw") }
+                    TextButton(onClick = onWithdraw) { Text("Forfeit") }
                 }
                 Spacer(Modifier.width(4.dp))
-                IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Default.Close, "Remove", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
+                if (isSetup) {
+                    IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.Close, "Remove", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
+                    }
                 }
             }
         }
