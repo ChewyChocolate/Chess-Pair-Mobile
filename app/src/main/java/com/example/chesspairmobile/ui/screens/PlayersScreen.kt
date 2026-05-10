@@ -30,6 +30,7 @@ fun PlayersScreen(
     players: List<PlayerEntity>,
     tournamentStatus: String,
     tournamentRound: Int,
+    tournamentTotalRounds: Int = 0,
     onAddPlayer: (String, Int?, String?, String?) -> Unit,
     onBulkAdd: (String) -> Unit,
     onRemovePlayer: (String) -> Unit,
@@ -137,6 +138,7 @@ fun PlayersScreen(
                             player = player,
                             isSetup = isSetup,
                             canEdit = canEdit,
+                            totalRounds = tournamentTotalRounds,
                             onRemove = { onRemovePlayer(player.id) },
                             onWithdraw = { onWithdrawPlayer(player.id) },
                             onRejoin = { onRejoinPlayer(player.id) },
@@ -248,6 +250,7 @@ fun PlayerCard(
     player: PlayerEntity,
     isSetup: Boolean,
     canEdit: Boolean = isSetup,
+    totalRounds: Int = 0,
     onRemove: () -> Unit,
     onWithdraw: () -> Unit,
     onRejoin: () -> Unit,
@@ -333,7 +336,7 @@ fun PlayerCard(
     if (showByeDialog) {
         RequestedByeDialog(
             byeRounds = byeRounds,
-            totalRounds = 99,
+            totalRounds = totalRounds,
             onDismiss = { showByeDialog = false },
             onSave = { newByes ->
                 onUpdatePlayer(player.copy(requestedByes = gson.toJson(newByes)))
@@ -357,7 +360,9 @@ fun RequestedByeDialog(
         title = { Text("Requested Byes") },
         text = {
             Column {
-                Text("Enter round numbers separated by commas (e.g. 1, 3, 5)",
+                val hint = if (totalRounds > 0) "Enter rounds 1-$totalRounds separated by commas (e.g. 1, 3, 5)"
+                    else "Enter round numbers separated by commas (e.g. 1, 3, 5)"
+                Text(hint,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
@@ -374,7 +379,7 @@ fun RequestedByeDialog(
             TextButton(onClick = {
                 val parsed = text.split(",")
                     .mapNotNull { it.trim().toIntOrNull() }
-                    .filter { it > 0 }
+                    .filter { it in 1..maxOf(totalRounds, 99) }
                     .distinct()
                     .sorted()
                 onSave(parsed)

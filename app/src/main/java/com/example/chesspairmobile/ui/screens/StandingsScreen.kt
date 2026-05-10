@@ -24,6 +24,7 @@ import com.example.chesspairmobile.data.db.PlayerEntity
 import com.example.chesspairmobile.data.db.TournamentEntity
 import com.example.chesspairmobile.data.models.PlayerStanding
 import com.example.chesspairmobile.data.models.TiebreakType
+import com.example.chesspairmobile.data.models.TournamentType
 import com.example.chesspairmobile.ui.components.TiebreakConfigPanel
 import com.example.chesspairmobile.ui.theme.GoldMedal
 import com.example.chesspairmobile.ui.theme.SilverMedal
@@ -158,33 +159,36 @@ fun StandingsScreen(
             if (onUpdateTiebreakOrder != null && tournament.status == "SETUP") {
                 TiebreakConfigPanel(
                     tiebreakOrder = tiebreakOrder,
-                    onTiebreakOrderChanged = onUpdateTiebreakOrder
+                    onTiebreakOrderChanged = onUpdateTiebreakOrder,
+                    tournamentType = try { TournamentType.valueOf(tournament.type) } catch (_: Exception) { null }
                 )
                 HorizontalDivider()
             }
 
             // Table header
+            val columns = remember(tiebreakOrder) { tiebreakColumns(tiebreakOrder) }
             Surface(
                 Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
             ) {
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("#", Modifier.width(36.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                    Text("Name", Modifier.weight(2f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    Text("Pts", Modifier.weight(0.7f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                    Text("BH", Modifier.weight(0.7f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                    Text("S-B", Modifier.weight(0.7f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text("Name", Modifier.width(160.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Text("Pts", Modifier.width(48.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    columns.forEach { col ->
+                        Text(col.label, Modifier.width(56.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    }
                 }
             }
 
             LazyColumn {
                 itemsIndexed(standings) { index, standing ->
-                    StandingRow(index = index, standing = standing)
+                    StandingRow(index = index, standing = standing, columns = columns)
                 }
                 item { Spacer(Modifier.height(16.dp)) }
             }
@@ -193,7 +197,7 @@ fun StandingsScreen(
 }
 
 @Composable
-fun StandingRow(index: Int, standing: PlayerStanding) {
+fun StandingRow(index: Int, standing: PlayerStanding, columns: List<TiebreakColumn>) {
     val podiumColor = when (index) {
         0 -> GoldMedal
         1 -> SilverMedal
@@ -213,7 +217,7 @@ fun StandingRow(index: Int, standing: PlayerStanding) {
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -244,7 +248,7 @@ fun StandingRow(index: Int, standing: PlayerStanding) {
                 )
             }
 
-            Column(Modifier.weight(2f)) {
+            Column(Modifier.width(160.dp)) {
                 Text(
                     standing.player.name,
                     style = MaterialTheme.typography.bodyMedium,
@@ -258,17 +262,38 @@ fun StandingRow(index: Int, standing: PlayerStanding) {
 
             Text(
                 "${standing.score}",
-                Modifier.weight(0.7f),
+                Modifier.width(48.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
 
-            val buchholz = "%.1f".format(standing.buchholz)
-            Text(buchholz, Modifier.weight(0.7f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
-
-            val sb = "%.2f".format(standing.sonnebornBerger)
-            Text(sb, Modifier.weight(0.7f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+            columns.forEach { col ->
+                Text(
+                    col.format(standing),
+                    Modifier.width(56.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
+    }
+}
+
+data class TiebreakColumn(
+    val label: String,
+    val format: (PlayerStanding) -> String
+)
+
+private fun tiebreakColumns(order: List<TiebreakType>): List<TiebreakColumn> = order.mapNotNull { tb ->
+    when (tb) {
+        TiebreakType.BUCHHOLZ -> TiebreakColumn("BH") { "%.1f".format(it.buchholz) }
+        TiebreakType.MEDIAN_BUCHHOLZ -> TiebreakColumn("MB") { "%.1f".format(it.medianBuchholz) }
+        TiebreakType.BUCHHOLZ_CUT1 -> TiebreakColumn("BC1") { "%.1f".format(it.buchholzCut1) }
+        TiebreakType.SONNEBORN_BERGER -> TiebreakColumn("S-B") { "%.2f".format(it.sonnebornBerger) }
+        TiebreakType.MOST_WINS -> TiebreakColumn("W") { "${it.mostWins}" }
+        TiebreakType.PROGRESSIVE -> TiebreakColumn("Prog") { "%.1f".format(it.progressive) }
+        TiebreakType.DIRECT_ENCOUNTER -> TiebreakColumn("DE") { "%.1f".format(it.directEncounter) }
+        else -> null
     }
 }

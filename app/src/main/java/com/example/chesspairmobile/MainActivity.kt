@@ -198,6 +198,7 @@ fun ChessPairApp(preferences: AppPreferences = AppPreferences(androidx.compose.u
                     players = players,
                     tournamentStatus = activeTournament?.status ?: "SETUP",
                     tournamentRound = activeTournament?.currentRound ?: 0,
+                    tournamentTotalRounds = activeTournament?.totalRounds ?: 0,
                     onAddPlayer = { name, rating, title, club -> viewModel.addPlayer(name, rating, title, club) },
                     onBulkAdd = { csv -> viewModel.bulkAddPlayers(csv) },
                     onRemovePlayer = { id -> viewModel.removePlayer(id) },

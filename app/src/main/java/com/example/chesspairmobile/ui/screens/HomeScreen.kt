@@ -300,7 +300,8 @@ fun CreateTournamentDialog(
                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
                 TiebreakConfigPanel(
                     tiebreakOrder = tiebreakOrder,
-                    onTiebreakOrderChanged = { tiebreakOrder = it }
+                    onTiebreakOrderChanged = { tiebreakOrder = it },
+                    tournamentType = type
                 )
             }
         },

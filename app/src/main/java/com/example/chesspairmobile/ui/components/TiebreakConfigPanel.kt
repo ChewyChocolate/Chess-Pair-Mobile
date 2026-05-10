@@ -13,6 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.chesspairmobile.data.models.TiebreakType
+import com.example.chesspairmobile.data.models.TournamentType
+import com.example.chesspairmobile.data.models.defaultTiebreakOrderForType
 
 data class TiebreakInfo(
     val type: TiebreakType,
@@ -33,7 +35,8 @@ val ALL_TIEBREAKS = listOf(
 @Composable
 fun TiebreakConfigPanel(
     tiebreakOrder: List<TiebreakType>,
-    onTiebreakOrderChanged: (List<TiebreakType>) -> Unit
+    onTiebreakOrderChanged: (List<TiebreakType>) -> Unit,
+    tournamentType: TournamentType? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -117,7 +120,10 @@ fun TiebreakConfigPanel(
                     Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = {
-                            onTiebreakOrderChanged(ALL_TIEBREAKS.map { it.type })
+                            onTiebreakOrderChanged(
+                                if (tournamentType != null) defaultTiebreakOrderForType(tournamentType)
+                                else ALL_TIEBREAKS.map { it.type }
+                            )
                         }) { Text("Reset to default") }
                     }
                 }
