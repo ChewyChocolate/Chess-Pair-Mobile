@@ -57,23 +57,7 @@ fun PlayersScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Players (${players.size})") },
-                actions = {
-                    TextButton(onClick = { showBulkDialog = true }) {
-                        Icon(Icons.Default.FileUpload, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Import")
-                    }
-                    if (players.isNotEmpty()) {
-                        IconButton(onClick = { showClearConfirm = true }) {
-                            Icon(Icons.Default.DeleteForever, "Clear All")
-                        }
-                    }
-                }
-            )
-        },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
             if (canEdit) {
                 FloatingActionButton(onClick = { showAddDialog = true }) {
@@ -83,6 +67,23 @@ fun PlayersScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
+            // Title row
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Players (${players.size})", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                TextButton(onClick = { showBulkDialog = true }) {
+                    Icon(Icons.Default.FileUpload, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Import")
+                }
+                if (players.isNotEmpty()) {
+                    IconButton(onClick = { showClearConfirm = true }) {
+                        Icon(Icons.Default.DeleteForever, "Clear All")
+                    }
+                }
+            }
             // Search/add bar
             if (players.size >= 8 || canEdit) {
                 SearchAddBar(

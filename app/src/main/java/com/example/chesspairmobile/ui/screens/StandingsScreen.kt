@@ -1,10 +1,11 @@
 package com.example.chesspairmobile.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -119,16 +120,21 @@ fun StandingsScreen(
         )
     }
 
+    val tableScrollState = rememberScrollState()
+
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Standings") }
-            )
-        }
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding)
         ) {
+            // Title
+            Text(
+                "Standings",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
             // Round selector
             Surface(
                 Modifier.fillMaxWidth(),
@@ -173,7 +179,7 @@ fun StandingsScreen(
             ) {
                 Row(
                     modifier = Modifier
-                        .horizontalScroll(rememberScrollState())
+                        .horizontalScroll(tableScrollState)
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -188,7 +194,7 @@ fun StandingsScreen(
 
             LazyColumn {
                 itemsIndexed(standings) { index, standing ->
-                    StandingRow(index = index, standing = standing, columns = columns)
+                    StandingRow(index = index, standing = standing, columns = columns, scrollState = tableScrollState)
                 }
                 item { Spacer(Modifier.height(16.dp)) }
             }
@@ -197,7 +203,7 @@ fun StandingsScreen(
 }
 
 @Composable
-fun StandingRow(index: Int, standing: PlayerStanding, columns: List<TiebreakColumn>) {
+fun StandingRow(index: Int, standing: PlayerStanding, columns: List<TiebreakColumn>, scrollState: ScrollState) {
     val podiumColor = when (index) {
         0 -> GoldMedal
         1 -> SilverMedal
@@ -217,7 +223,7 @@ fun StandingRow(index: Int, standing: PlayerStanding, columns: List<TiebreakColu
     ) {
         Row(
             modifier = Modifier
-                .horizontalScroll(rememberScrollState())
+                .horizontalScroll(scrollState)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

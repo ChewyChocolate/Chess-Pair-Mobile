@@ -45,6 +45,7 @@ fun HomeScreen(
         topBar = {
             TopAppBar(title = { Text("ChessPair") })
         },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showCreateDialog = true },

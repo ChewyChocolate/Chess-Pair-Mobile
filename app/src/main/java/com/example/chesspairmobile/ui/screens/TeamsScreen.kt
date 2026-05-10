@@ -35,9 +35,7 @@ fun TeamsScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(title = { Text("Teams (${teams.size})") })
-        },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
             FloatingActionButton(onClick = { showAddDialog = true }) {
                 Icon(Icons.Default.GroupAdd, "Add Team")
@@ -45,6 +43,13 @@ fun TeamsScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
+            // Title row
+            Text(
+                "Teams (${teams.size})",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
                 if (assignedCount < totalPlayers) {
                     Surface(
                         Modifier.fillMaxWidth(),

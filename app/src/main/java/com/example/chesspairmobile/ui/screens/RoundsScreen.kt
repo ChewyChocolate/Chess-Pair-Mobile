@@ -73,10 +73,21 @@ fun RoundsScreen(
         .all { it.result != null }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Rounds") },
-                actions = {
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            // Title row
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Rounds", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Row {
                     if (isActive) {
                         TextButton(
                             onClick = {
@@ -99,14 +110,7 @@ fun RoundsScreen(
                         }
                     }
                 }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
+            }
             if (isSetup) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
