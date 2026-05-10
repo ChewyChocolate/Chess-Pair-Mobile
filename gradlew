@@ -248,4 +248,16 @@ eval "set -- $(
         tr '\n' ' '
     )" '"$@"'
 
+# Create missing --init-script files (Android Studio temp scripts get cleaned from /tmp)
+i=1
+while [ $i -le $# ]; do
+    eval "arg=\${$i}"
+    if [ "$arg" = "--init-script" ]; then
+        j=$((i + 1))
+        eval "file=\${$j}"
+        [ -n "$file" ] && [ ! -f "$file" ] && touch "$file"
+    fi
+    i=$((i + 1))
+done
+
 exec "$JAVACMD" "$@"

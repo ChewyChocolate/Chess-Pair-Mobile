@@ -27,7 +27,7 @@ data class AppSettings(
         TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
         TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.PROGRESSIVE
     ),
-    val enableForfeitScoring: Boolean = true
+    val enableForfeitScoring: Boolean = false
 )
 
 class AppPreferences(private val context: Context) {
@@ -57,7 +57,7 @@ class AppPreferences(private val context: Context) {
             defaultAvoidClubs = prefs[KEY_AVOID_CLUBS] ?: false,
             defaultAcceleration = try { AccelerationMode.valueOf(prefs[KEY_ACCELERATION] ?: "NONE") } catch (_: Exception) { AccelerationMode.NONE },
             defaultTiebreakOrder = parseTiebreaks(prefs[KEY_TIEBREAKS] ?: ""),
-            enableForfeitScoring = prefs[KEY_FORFEIT] ?: true
+            enableForfeitScoring = prefs[KEY_FORFEIT] ?: false
         )
     }
 
