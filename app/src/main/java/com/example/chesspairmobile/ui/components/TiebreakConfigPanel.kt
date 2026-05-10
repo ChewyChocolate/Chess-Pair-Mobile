@@ -14,15 +14,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.chesspairmobile.data.models.TiebreakType
 
+data class TiebreakInfo(
+    val type: TiebreakType,
+    val name: String,
+    val description: String
+)
+
 val ALL_TIEBREAKS = listOf(
-    TiebreakType.DIRECT_ENCOUNTER to "Direct Encounter",
-    TiebreakType.BUCHHOLZ to "Buchholz",
-    TiebreakType.MEDIAN_BUCHHOLZ to "Median Buchholz",
-    TiebreakType.BUCHHOLZ_CUT1 to "Buchholz Cut-1",
-    TiebreakType.SONNEBORN_BERGER to "Sonneborn-Berger",
-    TiebreakType.MOST_WINS to "Most Wins",
-    TiebreakType.PROGRESSIVE to "Progressive",
-    TiebreakType.RATING to "Rating"
+    TiebreakInfo(TiebreakType.DIRECT_ENCOUNTER, "Direct Encounter", "Result between the tied players"),
+    TiebreakInfo(TiebreakType.BUCHHOLZ, "Buchholz", "Sum of opponents' scores"),
+    TiebreakInfo(TiebreakType.MEDIAN_BUCHHOLZ, "Median Buchholz", "Buchholz dropping highest & lowest opponent"),
+    TiebreakInfo(TiebreakType.BUCHHOLZ_CUT1, "Buchholz Cut-1", "Buchholz dropping lowest opponent"),
+    TiebreakInfo(TiebreakType.SONNEBORN_BERGER, "Sonneborn-Berger", "Sum of defeated opponents' scores + half of drawn"),
+    TiebreakInfo(TiebreakType.MOST_WINS, "Most Wins", "Most game wins (excluding byes)"),
+    TiebreakInfo(TiebreakType.PROGRESSIVE, "Progressive", "Sum of cumulative scores after each round")
 )
 
 @Composable
@@ -52,8 +57,10 @@ fun TiebreakConfigPanel(
 
                     // Currently configured tiebreaks
                     tiebreakOrder.forEachIndexed { index, tb ->
+                        val info = ALL_TIEBREAKS.find { it.type == tb }
                         TiebreakRow(
-                            label = ALL_TIEBREAKS.find { it.first == tb }?.second ?: tb.name,
+                            label = info?.name ?: tb.name,
+                            description = info?.description,
                             index = index,
                             count = tiebreakOrder.size,
                             onMoveUp = if (index > 0) {
@@ -89,19 +96,19 @@ fun TiebreakConfigPanel(
                     // Add new tiebreaks from unselected ones
                     Text("Add tiebreak:", style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.height(4.dp))
-                    val unselected = ALL_TIEBREAKS.filter { it.first !in tiebreakOrder }
+                    val unselected = ALL_TIEBREAKS.filter { it.type !in tiebreakOrder }
                     if (unselected.isEmpty()) {
                         Text("All tiebreaks already selected",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            unselected.forEach { (tb, label) ->
+                            unselected.forEach { info ->
                                 SuggestionChip(
                                     onClick = {
-                                        onTiebreakOrderChanged(tiebreakOrder + tb)
+                                        onTiebreakOrderChanged(tiebreakOrder + info.type)
                                     },
-                                    label = { Text(label) }
+                                    label = { Text(info.name) }
                                 )
                             }
                         }
@@ -110,7 +117,7 @@ fun TiebreakConfigPanel(
                     Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = {
-                            onTiebreakOrderChanged(ALL_TIEBREAKS.map { it.first })
+                            onTiebreakOrderChanged(ALL_TIEBREAKS.map { it.type })
                         }) { Text("Reset to default") }
                     }
                 }
@@ -122,6 +129,7 @@ fun TiebreakConfigPanel(
 @Composable
 fun TiebreakRow(
     label: String,
+    description: String?,
     index: Int,
     count: Int,
     onMoveUp: (() -> Unit)?,
@@ -148,7 +156,12 @@ fun TiebreakRow(
                 )
             }
             Spacer(Modifier.width(10.dp))
-            Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Column(Modifier.weight(1f)) {
+                Text(label, style = MaterialTheme.typography.bodyMedium)
+                if (description != null) {
+                    Text(description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
 
             // Arrow buttons
             if (onMoveUp != null) {

@@ -71,11 +71,11 @@ fun StandingsScreen(
             names.mapNotNull { try { TiebreakType.valueOf(it) } catch (_: Exception) { null } }
                 .ifEmpty {
                     listOf(TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
-                        TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.RATING)
+                        TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.PROGRESSIVE)
                 }
         } catch (e: Exception) {
             listOf(TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
-                TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.RATING)
+                TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.PROGRESSIVE)
         }
     }
 

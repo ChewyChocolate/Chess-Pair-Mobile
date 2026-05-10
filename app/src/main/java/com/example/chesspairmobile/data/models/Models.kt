@@ -91,6 +91,18 @@ data class Tournament(
     val liveBroadcastUrl: String? = null
 )
 
+fun defaultTiebreakOrderForType(type: TournamentType): List<TiebreakType> = when (type) {
+    TournamentType.SWISS -> listOf(
+        TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
+        TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS
+    )
+    TournamentType.ROUND_ROBIN -> listOf(
+        TiebreakType.DIRECT_ENCOUNTER, TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS,
+        TiebreakType.PROGRESSIVE
+    )
+    TournamentType.KNOCKOUT -> emptyList()
+}
+
 data class PlayerStanding(
     val player: Player,
     val score: Double,

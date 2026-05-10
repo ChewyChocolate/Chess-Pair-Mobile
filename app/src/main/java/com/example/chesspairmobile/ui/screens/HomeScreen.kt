@@ -34,7 +34,7 @@ fun HomeScreen(
     defaultAcceleration: AccelerationMode = AccelerationMode.NONE,
     defaultTiebreakOrder: List<TiebreakType> = listOf(
         TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
-        TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.RATING
+        TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS
     )
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -207,7 +207,7 @@ fun CreateTournamentDialog(
     defaultAcceleration: AccelerationMode = AccelerationMode.NONE,
     defaultTiebreakOrder: List<TiebreakType> = listOf(
         TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
-        TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.RATING
+        TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS
     )
 ) {
     var name by remember { mutableStateOf("") }
@@ -224,6 +224,10 @@ fun CreateTournamentDialog(
     var accelMode by remember { mutableStateOf(defaultAcceleration) }
     var tiebreakOrder by remember { mutableStateOf(defaultTiebreakOrder) }
     var expandedType by remember { mutableStateOf(false) }
+
+    LaunchedEffect(type) {
+        tiebreakOrder = defaultTiebreakOrderForType(type)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,

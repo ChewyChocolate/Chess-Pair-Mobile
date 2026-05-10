@@ -90,10 +90,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         autoCalcRounds: Boolean = false,
         manualOverride: Boolean = false,
         section: String? = null,
-        tiebreakOrder: List<TiebreakType> = listOf(
-            TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
-            TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.RATING
-        ),
+        tiebreakOrder: List<TiebreakType> = defaultTiebreakOrderForType(type),
         accelerationMode: AccelerationMode = AccelerationMode.NONE
     ) {
         val rounds = totalRounds.coerceAtLeast(1)

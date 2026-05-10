@@ -25,7 +25,7 @@ data class AppSettings(
     val defaultAcceleration: AccelerationMode = AccelerationMode.NONE,
     val defaultTiebreakOrder: List<TiebreakType> = listOf(
         TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
-        TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.RATING
+        TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.PROGRESSIVE
     ),
     val enableForfeitScoring: Boolean = true
 )
