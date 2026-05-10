@@ -22,6 +22,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.compose.ui.unit.dp
 import com.example.chesspairmobile.data.db.Converters
 import com.example.chesspairmobile.data.models.*
+import com.example.chesspairmobile.data.preferences.AppPreferences
+import com.example.chesspairmobile.data.preferences.ThemeMode
 import com.example.chesspairmobile.ui.screens.*
 import com.example.chesspairmobile.ui.theme.ChessPairMobileTheme
 import com.example.chesspairmobile.viewmodel.TournamentViewModel
@@ -31,8 +33,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            ChessPairMobileTheme {
-                ChessPairApp()
+            val preferences = remember { AppPreferences(applicationContext) }
+            val settings by preferences.settings.collectAsState(initial = AppPreferences(applicationContext).run { com.example.chesspairmobile.data.preferences.AppSettings() })
+            val themeOverride = when (settings.themeMode) {
+                ThemeMode.SYSTEM -> null
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            ChessPairMobileTheme(darkTheme = themeOverride) {
+                ChessPairApp(preferences = preferences)
             }
         }
     }
@@ -47,13 +56,15 @@ data class NavItem(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChessPairApp() {
+fun ChessPairApp(preferences: AppPreferences = AppPreferences(androidx.compose.ui.platform.LocalContext.current)) {
     val viewModel: TournamentViewModel = viewModel()
     val tournaments by viewModel.tournaments.collectAsState()
     val activeId by viewModel.activeTournamentId.collectAsState()
     val players by viewModel.players.collectAsState()
     val teams by viewModel.teams.collectAsState()
     val matches by viewModel.matches.collectAsState()
+
+    val settings by preferences.settings.collectAsState(initial = AppPreferences(androidx.compose.ui.platform.LocalContext.current).run { com.example.chesspairmobile.data.preferences.AppSettings() })
 
     val activeTournament = tournaments.find { it.id == activeId }
 
@@ -62,6 +73,7 @@ fun ChessPairApp() {
     val currentRoute = navBackStackEntry?.destination?.route
 
     val isTvMode = currentRoute == "tv"
+    val isSettings = currentRoute == "settings"
 
     val navItems = listOf(
         NavItem("home", "Home", Icons.Outlined.Home, Icons.Filled.Home),
@@ -88,21 +100,18 @@ fun ChessPairApp() {
         return
     }
 
-    var showTvDialog by remember { mutableStateOf(false) }
+    var themeChangedKey by remember { mutableIntStateOf(0) }
 
     Scaffold(
         topBar = {
-            if (activeTournament != null && !isTvMode) {
+            if (activeTournament != null && !isTvMode && !isSettings) {
                 TopAppBar(
                     title = { Text(activeTournament!!.name, maxLines = 1) },
                     actions = {
-                        IconButton(
-                            onClick = {
-                                navController.navigate("tv") {
-                                    launchSingleTop = true
-                                }
-                            }
-                        ) {
+                        IconButton(onClick = { navController.navigate("settings") { launchSingleTop = true } }) {
+                            Icon(Icons.Default.Settings, "Settings")
+                        }
+                        IconButton(onClick = { navController.navigate("tv") { launchSingleTop = true } }) {
                             Icon(Icons.Default.Tv, "TV Display")
                         }
                     }
@@ -110,7 +119,7 @@ fun ChessPairApp() {
             }
         },
         bottomBar = {
-            if (activeTournament != null && !isTvMode) {
+            if (activeTournament != null && !isTvMode && !isSettings) {
                 NavigationBar {
                     allNavItems.forEach { item ->
                         NavigationBarItem(
@@ -124,9 +133,7 @@ fun ChessPairApp() {
                             selected = currentRoute == item.route,
                             onClick = {
                                 navController.navigate(item.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                                     launchSingleTop = true
                                     restoreState = true
                                 }
@@ -156,13 +163,17 @@ fun ChessPairApp() {
                     },
                     onCreateTournament = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode ->
                         viewModel.createTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode)
-                            navController.navigate("dashboard") {
-                                popUpTo("home") { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
+                        navController.navigate("dashboard") {
+                            popUpTo("home") { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     },
-                    onDeleteTournament = { id -> viewModel.deleteTournament(id) }
+                    onDeleteTournament = { id -> viewModel.deleteTournament(id) },
+                    defaultPoints = Triple(settings.defaultWinPoints, settings.defaultDrawPoints, settings.defaultLossPoints),
+                    defaultAvoidClubs = settings.defaultAvoidClubs,
+                    defaultAcceleration = settings.defaultAcceleration,
+                    defaultTiebreakOrder = settings.defaultTiebreakOrder
                 )
             }
 
@@ -187,9 +198,7 @@ fun ChessPairApp() {
                     players = players,
                     tournamentStatus = activeTournament?.status ?: "SETUP",
                     tournamentRound = activeTournament?.currentRound ?: 0,
-                    onAddPlayer = { name, rating, title, club ->
-                        viewModel.addPlayer(name, rating, title, club)
-                    },
+                    onAddPlayer = { name, rating, title, club -> viewModel.addPlayer(name, rating, title, club) },
                     onBulkAdd = { csv -> viewModel.bulkAddPlayers(csv) },
                     onRemovePlayer = { id -> viewModel.removePlayer(id) },
                     onWithdrawPlayer = { id -> viewModel.withdrawPlayer(id) },
@@ -204,9 +213,7 @@ fun ChessPairApp() {
                     teams = teams,
                     players = players,
                     onAddTeam = { name -> viewModel.addTeam(name) },
-                    onAssignPlayer = { teamId, playerId ->
-                        viewModel.assignPlayerToTeam(teamId, playerId)
-                    },
+                    onAssignPlayer = { teamId, playerId -> viewModel.assignPlayerToTeam(teamId, playerId) },
                     onRemoveFromTeam = { teamId, playerId ->
                         val team = teams.find { it.id == teamId } ?: return@TeamsScreen
                         val ids = viewModel.run {
@@ -225,14 +232,11 @@ fun ChessPairApp() {
                     matches = matches,
                     onStartTournament = { viewModel.startTournament() },
                     onGeneratePairings = { round -> viewModel.generatePairings(round) },
-                    onUpdateResult = { matchId, result ->
-                        viewModel.updateMatchResult(matchId, result)
-                    },
+                    onUpdateResult = { matchId, result -> viewModel.updateMatchResult(matchId, result) },
                     onCompleteRound = { viewModel.completeRound() },
                     onRollbackRound = { viewModel.rollbackRound() },
-                    onSwapPlayers = { m1, w1, m2, w2 ->
-                        viewModel.swapPlayers(m1, w1, m2, w2)
-                    }
+                    onSwapPlayers = { m1, w1, m2, w2 -> viewModel.swapPlayers(m1, w1, m2, w2) },
+                    enableForfeitScoring = settings.enableForfeitScoring
                 )
             }
 
@@ -242,14 +246,18 @@ fun ChessPairApp() {
                     players = players,
                     matches = matches,
                     onExportCsv = { "" },
-                    onUpdateTiebreakOrder = { order ->
-                        viewModel.updateTournamentSettings(tiebreakOrder = order)
-                    }
+                    onUpdateTiebreakOrder = { order -> viewModel.updateTournamentSettings(tiebreakOrder = order) }
                 )
             }
 
-            composable("tv") {
-                // TV mode is rendered outside NavHost for full-screen immersion
+            composable("tv") {}
+
+            composable("settings") {
+                SettingsScreen(
+                    preferences = preferences,
+                    onBack = { navController.popBackStack() },
+                    onThemeChanged = { themeChangedKey++ }
+                )
             }
         }
     }

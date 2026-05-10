@@ -26,7 +26,14 @@ fun HomeScreen(
     activeId: String?,
     onSelectTournament: (String) -> Unit,
     onCreateTournament: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode) -> Unit,
-    onDeleteTournament: (String) -> Unit
+    onDeleteTournament: (String) -> Unit,
+    defaultPoints: Triple<Double, Double, Double> = Triple(1.0, 0.5, 0.0),
+    defaultAvoidClubs: Boolean = false,
+    defaultAcceleration: AccelerationMode = AccelerationMode.NONE,
+    defaultTiebreakOrder: List<TiebreakType> = listOf(
+        TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
+        TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.RATING
+    )
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
     var deleteConfirmId by remember { mutableStateOf<String?>(null) }
@@ -103,7 +110,11 @@ fun HomeScreen(
             onCreate = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode ->
                 onCreateTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode)
                 showCreateDialog = false
-            }
+            },
+            defaultPoints = defaultPoints,
+            defaultAvoidClubs = defaultAvoidClubs,
+            defaultAcceleration = defaultAcceleration,
+            defaultTiebreakOrder = defaultTiebreakOrder
         )
     }
 }
@@ -188,7 +199,14 @@ fun TournamentTypeChip(type: String) {
 @Composable
 fun CreateTournamentDialog(
     onDismiss: () -> Unit,
-    onCreate: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode) -> Unit
+    onCreate: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode) -> Unit,
+    defaultPoints: Triple<Double, Double, Double> = Triple(1.0, 0.5, 0.0),
+    defaultAvoidClubs: Boolean = false,
+    defaultAcceleration: AccelerationMode = AccelerationMode.NONE,
+    defaultTiebreakOrder: List<TiebreakType> = listOf(
+        TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
+        TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.RATING
+    )
 ) {
     var name by remember { mutableStateOf("") }
     var section by remember { mutableStateOf("") }
@@ -196,16 +214,13 @@ fun CreateTournamentDialog(
     var isTeam by remember { mutableStateOf(false) }
     var rounds by remember { mutableStateOf("5") }
     var timeControl by remember { mutableStateOf("") }
-    var winPts by remember { mutableStateOf("1") }
-    var drawPts by remember { mutableStateOf("0.5") }
-    var lossPts by remember { mutableStateOf("0") }
-    var avoidClubs by remember { mutableStateOf(false) }
+    var winPts by remember { mutableStateOf(defaultPoints.first.toString()) }
+    var drawPts by remember { mutableStateOf(defaultPoints.second.toString()) }
+    var lossPts by remember { mutableStateOf(defaultPoints.third.toString()) }
+    var avoidClubs by remember { mutableStateOf(defaultAvoidClubs) }
     var autoCalc by remember { mutableStateOf(false) }
-    var accelMode by remember { mutableStateOf(AccelerationMode.NONE) }
-    var tiebreakOrder by remember { mutableStateOf(
-        listOf(TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
-            TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.RATING)
-    ) }
+    var accelMode by remember { mutableStateOf(defaultAcceleration) }
+    var tiebreakOrder by remember { mutableStateOf(defaultTiebreakOrder) }
     var expandedType by remember { mutableStateOf(false) }
 
     AlertDialog(

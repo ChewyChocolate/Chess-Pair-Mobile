@@ -36,7 +36,8 @@ fun RoundsScreen(
     onUpdateResult: (String, MatchResult?) -> Unit,
     onCompleteRound: () -> Unit,
     onRollbackRound: () -> Unit,
-    onSwapPlayers: (String, Boolean, String, Boolean) -> Unit
+    onSwapPlayers: (String, Boolean, String, Boolean) -> Unit,
+    enableForfeitScoring: Boolean = true
 ) {
     if (tournament == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -277,7 +278,8 @@ fun RoundsScreen(
                                     swapColor1 = null
                                 }
                             },
-                            showResults = (selectedRound == currentRound && isActive) || editingPastRound
+                            showResults = selectedRound <= currentRound,
+                            enableForfeitScoring = enableForfeitScoring
                         )
                     }
                 }
@@ -350,7 +352,8 @@ fun MatchCard(
     isSwapMode: Boolean,
     isSwapSelected: Boolean,
     onSwapSelect: (Boolean) -> Unit,
-    showResults: Boolean
+    showResults: Boolean,
+    enableForfeitScoring: Boolean = true
 ) {
     val whitePlayer = players.find { it.id == match.whiteId }
     val blackPlayer = players.find { it.id == match.blackId }
@@ -452,7 +455,8 @@ fun MatchCard(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     ResultSelector(
                         currentResult = match.result?.let { try { MatchResult.valueOf(it) } catch (_: Exception) { null } },
-                        onSelect = onUpdateResult
+                        onSelect = onUpdateResult,
+                        enableForfeitScoring = enableForfeitScoring
                     )
                 }
             }
@@ -513,9 +517,10 @@ fun PlayerRow(
 @Composable
 fun ResultSelector(
     currentResult: MatchResult?,
-    onSelect: (MatchResult?) -> Unit
+    onSelect: (MatchResult?) -> Unit,
+    enableForfeitScoring: Boolean = true
 ) {
-    var showForfeitMenu by remember { mutableStateOf(false) }
+    val buttonCount = if (enableForfeitScoring) 5 else 3
 
     Column {
         SingleChoiceSegmentedButtonRow(modifier = Modifier.padding(vertical = 4.dp)) {
@@ -525,7 +530,7 @@ fun ResultSelector(
                     if (currentResult == MatchResult.WHITE_WIN) onSelect(null)
                     else onSelect(MatchResult.WHITE_WIN)
                 },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 5),
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = buttonCount),
                 colors = SegmentedButtonDefaults.colors(
                     activeContainerColor = Color(0xFF2E7D32).copy(alpha = 0.15f),
                     activeContentColor = Color(0xFF2E7D32)
@@ -533,27 +538,32 @@ fun ResultSelector(
             ) {
                 Text("1-0", fontWeight = FontWeight.Bold, maxLines = 1)
             }
-            SegmentedButton(
-                selected = currentResult == MatchResult.FORFEIT_BLACK,
-                onClick = {
-                    if (currentResult == MatchResult.FORFEIT_BLACK) onSelect(null)
-                    else onSelect(MatchResult.FORFEIT_BLACK)
-                },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 5),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = Color(0xFF4A148C).copy(alpha = 0.15f),
-                    activeContentColor = Color(0xFF4A148C)
-                )
-            ) {
-                Text("+ -", fontWeight = FontWeight.Bold, maxLines = 1)
+
+            if (enableForfeitScoring) {
+                SegmentedButton(
+                    selected = currentResult == MatchResult.FORFEIT_BLACK,
+                    onClick = {
+                        if (currentResult == MatchResult.FORFEIT_BLACK) onSelect(null)
+                        else onSelect(MatchResult.FORFEIT_BLACK)
+                    },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = buttonCount),
+                    colors = SegmentedButtonDefaults.colors(
+                        activeContainerColor = Color(0xFF4A148C).copy(alpha = 0.15f),
+                        activeContentColor = Color(0xFF4A148C)
+                    )
+                ) {
+                    Text("+ -", fontWeight = FontWeight.Bold, maxLines = 1)
+                }
             }
+
+            val drawIdx = if (enableForfeitScoring) 2 else 1
             SegmentedButton(
                 selected = currentResult == MatchResult.DRAW,
                 onClick = {
                     if (currentResult == MatchResult.DRAW) onSelect(null)
                     else onSelect(MatchResult.DRAW)
                 },
-                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 5),
+                shape = SegmentedButtonDefaults.itemShape(index = drawIdx, count = buttonCount),
                 colors = SegmentedButtonDefaults.colors(
                     activeContainerColor = Color(0xFF546E7A).copy(alpha = 0.15f),
                     activeContentColor = Color(0xFF546E7A)
@@ -561,27 +571,32 @@ fun ResultSelector(
             ) {
                 Text("\u00BD-\u00BD", fontWeight = FontWeight.Bold, maxLines = 1)
             }
-            SegmentedButton(
-                selected = currentResult == MatchResult.FORFEIT_WHITE,
-                onClick = {
-                    if (currentResult == MatchResult.FORFEIT_WHITE) onSelect(null)
-                    else onSelect(MatchResult.FORFEIT_WHITE)
-                },
-                shape = SegmentedButtonDefaults.itemShape(index = 3, count = 5),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = Color(0xFF4A148C).copy(alpha = 0.15f),
-                    activeContentColor = Color(0xFF4A148C)
-                )
-            ) {
-                Text("- +", fontWeight = FontWeight.Bold, maxLines = 1)
+
+            if (enableForfeitScoring) {
+                SegmentedButton(
+                    selected = currentResult == MatchResult.FORFEIT_WHITE,
+                    onClick = {
+                        if (currentResult == MatchResult.FORFEIT_WHITE) onSelect(null)
+                        else onSelect(MatchResult.FORFEIT_WHITE)
+                    },
+                    shape = SegmentedButtonDefaults.itemShape(index = 3, count = buttonCount),
+                    colors = SegmentedButtonDefaults.colors(
+                        activeContainerColor = Color(0xFF4A148C).copy(alpha = 0.15f),
+                        activeContentColor = Color(0xFF4A148C)
+                    )
+                ) {
+                    Text("- +", fontWeight = FontWeight.Bold, maxLines = 1)
+                }
             }
+
+            val blackIdx = if (enableForfeitScoring) 4 else 2
             SegmentedButton(
                 selected = currentResult == MatchResult.BLACK_WIN,
                 onClick = {
                     if (currentResult == MatchResult.BLACK_WIN) onSelect(null)
                     else onSelect(MatchResult.BLACK_WIN)
                 },
-                shape = SegmentedButtonDefaults.itemShape(index = 4, count = 5),
+                shape = SegmentedButtonDefaults.itemShape(index = blackIdx, count = buttonCount),
                 colors = SegmentedButtonDefaults.colors(
                     activeContainerColor = Color(0xFFC62828).copy(alpha = 0.15f),
                     activeContentColor = Color(0xFFC62828)
@@ -590,8 +605,8 @@ fun ResultSelector(
                 Text("0-1", fontWeight = FontWeight.Bold, maxLines = 1)
             }
         }
-        // Legend
-        if (currentResult == MatchResult.FORFEIT_WHITE || currentResult == MatchResult.FORFEIT_BLACK) {
+
+        if (enableForfeitScoring && (currentResult == MatchResult.FORFEIT_WHITE || currentResult == MatchResult.FORFEIT_BLACK)) {
             Text(
                 if (currentResult == MatchResult.FORFEIT_WHITE) "Black wins by forfeit" else "White wins by forfeit",
                 style = MaterialTheme.typography.labelSmall,
