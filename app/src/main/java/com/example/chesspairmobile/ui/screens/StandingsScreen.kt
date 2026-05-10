@@ -102,15 +102,16 @@ fun StandingsScreen(
         }
     }
 
-    val standings = remember(modelPlayers, modelMatches, tournament, tiebreakOrder) {
+    var selectedRound by remember { mutableStateOf(tournament.currentRound) }
+
+    val standings = remember(modelPlayers, modelMatches, tournament, tiebreakOrder, selectedRound) {
         calculateStandings(
             modelPlayers, modelMatches,
             tournament.pointsForWin, tournament.pointsForDraw, tournament.pointsForLoss,
-            tiebreakOrder
+            tiebreakOrder,
+            upToRound = selectedRound
         )
     }
-
-    var selectedRound by remember { mutableStateOf(tournament.currentRound) }
 
     Scaffold(
         topBar = {
