@@ -105,7 +105,7 @@ fun TvDisplayScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(DarkBg)) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp)
+            modifier = Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, top = 64.dp, bottom = 24.dp)
         ) {
             // Header
             Text(

@@ -138,8 +138,11 @@ fun RoundsScreen(
                 // Round selector
                 Surface(Modifier.fillMaxWidth(), tonalElevation = 1.dp) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp).horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.Center
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         val maxDisplayRound = maxOf(currentRound, 1)
                         for (r in 1..maxDisplayRound) {

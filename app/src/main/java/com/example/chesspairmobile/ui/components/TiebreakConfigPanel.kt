@@ -32,6 +32,7 @@ val ALL_TIEBREAKS = listOf(
     TiebreakInfo(TiebreakType.PROGRESSIVE, "Progressive", "Sum of cumulative scores after each round")
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TiebreakConfigPanel(
     tiebreakOrder: List<TiebreakType>,
