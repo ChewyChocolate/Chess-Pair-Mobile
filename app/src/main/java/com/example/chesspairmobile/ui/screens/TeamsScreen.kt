@@ -45,25 +45,22 @@ fun TeamsScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            if (totalPlayers > 0 && assignedCount < totalPlayers) {
-                Surface(
-                    Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                if (assignedCount < totalPlayers) {
+                    Surface(
+                        Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                     ) {
-                        Icon(Icons.Default.Info, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "$assignedCount of $totalPlayers players assigned to teams",
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                        Row(
+                            Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Info, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text("$assignedCount of $totalPlayers players assigned to teams", style = MaterialTheme.typography.bodySmall)
+                        }
                     }
+                    HorizontalDivider()
                 }
-                HorizontalDivider()
-            }
 
             if (teams.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -81,6 +78,7 @@ fun TeamsScreen(
                         TeamCard(
                             team = team,
                             players = players,
+                            allTeams = teams,
                             onAssignPlayer = { playerId -> onAssignPlayer(team.id, playerId) },
                             onRemovePlayer = { playerId -> onRemoveFromTeam(team.id, playerId) }
                         )
@@ -106,6 +104,7 @@ fun TeamsScreen(
 fun TeamCard(
     team: TeamEntity,
     players: List<PlayerEntity>,
+    allTeams: List<TeamEntity>,
     onAssignPlayer: (String) -> Unit,
     onRemovePlayer: (String) -> Unit
 ) {
@@ -118,10 +117,16 @@ fun TeamCard(
     }
 
     val assignedPlayers = players.filter { p -> teamPlayerIds.contains(p.id) }
+    val allAssignedPlayerIds = remember(allTeams, players) {
+        allTeams.flatMap { t ->
+            try {
+                val type = object : TypeToken<List<String>>() {}.type
+                gson.fromJson<List<String>>(t.playerIds, type) ?: emptyList()
+            } catch (_: Exception) { emptyList() }
+        }.toSet()
+    }
     val unassignedPlayers = players.filter { p ->
-        p.active && !p.withdrawn && !teamPlayerIds.contains(p.id) &&
-        // Not on another team
-        !playerIsOnOtherTeam(p.id, team.id, gson)
+        p.active && !p.withdrawn && p.id !in allAssignedPlayerIds
     }
 
     var showAssignDropdown by remember { mutableStateOf(false) }
@@ -234,14 +239,6 @@ fun TeamCard(
             }
         }
     }
-}
-
-private val globalGson = com.google.gson.Gson()
-private fun playerIsOnOtherTeam(playerId: String, excludeTeamId: String, gson: Gson = globalGson): Boolean {
-    return false // Check is handled in ViewModel now via requireStatus
-    // The TeamsScreen passes `allTeams` — but we don't have access to `teams` here.
-    // We could refactor, but the ViewModel already prevents cross-team assignment.
-    // We simply filter `unassignedPlayers` to not show players already on this team.
 }
 
 @Composable

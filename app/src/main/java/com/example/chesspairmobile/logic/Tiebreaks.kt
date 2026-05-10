@@ -57,15 +57,18 @@ fun calculateStandings(
             if (m.whiteId == p.id) {
                 val oppScore = data.scores[m.blackId] ?: 0.0
                 when (m.result) {
-                    MatchResult.WHITE_WIN, MatchResult.FORFEIT_BLACK -> sb += oppScore
+                    MatchResult.WHITE_WIN -> sb += oppScore
                     MatchResult.DRAW -> sb += oppScore / 2
+                    // Forfeit: treat as draw for tiebreaks per FIDE Annex 3
+                    MatchResult.FORFEIT_WHITE, MatchResult.FORFEIT_BLACK -> sb += oppScore / 2
                     else -> {}
                 }
             } else if (m.blackId == p.id) {
                 val oppScore = data.scores[m.whiteId] ?: 0.0
                 when (m.result) {
-                    MatchResult.BLACK_WIN, MatchResult.FORFEIT_WHITE -> sb += oppScore
+                    MatchResult.BLACK_WIN -> sb += oppScore
                     MatchResult.DRAW -> sb += oppScore / 2
+                    MatchResult.FORFEIT_WHITE, MatchResult.FORFEIT_BLACK -> sb += oppScore / 2
                     else -> {}
                 }
             }
@@ -187,7 +190,7 @@ fun calculatePerformanceRating(players: List<Player>, matches: List<Match>, play
 
     if (ratedGames == 0) return 0
 
-    val avgOppRating = totalOpponentRating / ratedGames
+    val avgOppRating = totalOpponentRating.toDouble() / ratedGames
     val scorePercentage = score / ratedGames
 
     // Elo performance rating formula

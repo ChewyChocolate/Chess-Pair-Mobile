@@ -14,8 +14,10 @@ class Converters {
 
     @TypeConverter
     fun toStringList(value: String): List<String> {
-        val type = object : TypeToken<List<String>>() {}.type
-        return gson.fromJson(value, type) ?: emptyList()
+        return try {
+            val type = object : TypeToken<List<String>>() {}.type
+            gson.fromJson(value, type) ?: emptyList()
+        } catch (_: Exception) { emptyList() }
     }
 
     @TypeConverter
@@ -23,8 +25,10 @@ class Converters {
 
     @TypeConverter
     fun toIntList(value: String): List<Int> {
-        val type = object : TypeToken<List<Int>>() {}.type
-        return gson.fromJson(value, type) ?: emptyList()
+        return try {
+            val type = object : TypeToken<List<Int>>() {}.type
+            gson.fromJson(value, type) ?: emptyList()
+        } catch (_: Exception) { emptyList() }
     }
 
     @TypeConverter

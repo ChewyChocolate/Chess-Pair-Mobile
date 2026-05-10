@@ -23,6 +23,9 @@ import com.example.chesspairmobile.data.db.TournamentEntity
 import com.example.chesspairmobile.data.models.PlayerStanding
 import com.example.chesspairmobile.data.models.TiebreakType
 import com.example.chesspairmobile.ui.components.TiebreakConfigPanel
+import com.example.chesspairmobile.ui.theme.GoldMedal
+import com.example.chesspairmobile.ui.theme.SilverMedal
+import com.example.chesspairmobile.ui.theme.BronzeMedal
 import com.example.chesspairmobile.logic.calculateStandings
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -92,7 +95,7 @@ fun StandingsScreen(
         matches.map { m ->
             com.example.chesspairmobile.data.models.Match(
                 id = m.id, round = m.round, whiteId = m.whiteId, blackId = m.blackId,
-                result = m.result?.let { com.example.chesspairmobile.data.models.MatchResult.valueOf(it) },
+                result = try { m.result?.let { com.example.chesspairmobile.data.models.MatchResult.valueOf(it) } } catch (_: Exception) { null },
                 boardNumber = m.boardNumber, teamMatchId = m.teamMatchId,
                 isManual = m.isManual, pgn = m.pgn
             )
@@ -179,10 +182,6 @@ fun StandingsScreen(
         }
     }
 }
-
-val GoldMedal = Color(0xFFFFD700)
-val SilverMedal = Color(0xFFC0C0C0)
-val BronzeMedal = Color(0xFFCD7F32)
 
 @Composable
 fun StandingRow(index: Int, standing: PlayerStanding) {

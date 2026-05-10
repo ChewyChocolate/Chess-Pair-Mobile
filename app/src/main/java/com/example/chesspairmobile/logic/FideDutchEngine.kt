@@ -111,15 +111,14 @@ fun generateFideDutch(
         val s1 = bracket.take(s1Size).toMutableList()
         val s2 = bracket.drop(s1Size).toMutableList()
 
-        // Try to pair S1 vs S2
+        // Pair S1 players, processing weakest first (reverse order) for better max-pair behavior
         val pairedBracket = mutableListOf<Match>()
         val usedFromS1 = mutableSetOf<String>()
         val usedFromS2 = mutableSetOf<String>()
 
-        // For each player in S1, find best opponent in S2
-        for (p1 in s1) {
+        for (p1 in s1.asReversed()) {
             var bestJ = -1
-            var bestScore = Int.MIN_VALUE // higher = better match
+            var bestScore = Int.MIN_VALUE
 
             for (j in s2.indices) {
                 val p2 = s2[j]
@@ -145,7 +144,6 @@ fun generateFideDutch(
         // Handle unpaired players in current bracket
         s1.filter { it.id !in usedFromS1 }.forEach { leftover.add(it) }
         s2.filter { it.id !in usedFromS2 }.forEach { leftover.add(it) }
-        // Sort leftover by seed for next bracket
         leftover.sortWith(compareBySeed)
 
         // Add newly paired matches
@@ -155,7 +153,6 @@ fun generateFideDutch(
 
         // If last bracket and leftover has > 1 player, pair greedily
         if (isLastBracket && leftover.size > 1) {
-            // Fallback: pair leftover ignoring strict constraints
             while (leftover.size > 1) {
                 val p1 = leftover[0]
                 var p2Idx = 1
@@ -170,6 +167,12 @@ fun generateFideDutch(
                 leftover.removeAt(0)
             }
         }
+    }
+
+    // If exactly 1 player left unpaired after all brackets, assign a bye
+    if (leftover.size == 1) {
+        val byePlayer = leftover[0]
+        resultMatches.add(Match(round = round, whiteId = byePlayer.id, blackId = null, result = MatchResult.BYE, boardNumber = 999))
     }
 
     return resultMatches
@@ -224,7 +227,7 @@ fun pairQuality(p1: Player, p2: Player, data: ScoreData, avoidClubPairings: Bool
     if (data.played[p1.id]?.contains(p2.id) == true) return -1
 
     // Club avoidance
-    if (avoidClubPairings && p1.club != null && p2.club != null && p1.club == p2.club) return -1
+    if (avoidClubPairings && !p1.club.isNullOrEmpty() && !p2.club.isNullOrEmpty() && p1.club == p2.club) return -1
 
     // Check if at least one color assignment is possible
     val bal1 = data.colorBalance[p1.id] ?: 0

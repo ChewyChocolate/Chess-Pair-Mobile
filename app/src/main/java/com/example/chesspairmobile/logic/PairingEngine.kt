@@ -265,8 +265,9 @@ fun generateSwiss(
         return true to (option1 to option2)
     }
 
-    fun pairPlayers(toPair: List<Player>, relaxColorBalance: Boolean = false, relaxFloats: Boolean = false): List<Match>? {
+    fun pairPlayers(toPair: List<Player>, relaxColorBalance: Boolean = false, relaxFloats: Boolean = false, depth: Int = 0): List<Match>? {
         if (toPair.isEmpty()) return emptyList()
+        if (depth > 200) return null
 
         val p1 = toPair[0]
         val half = toPair.size / 2
@@ -279,7 +280,7 @@ fun generateSwiss(
             val (valid, options) = canPair(p1, p2, relaxColorBalance, relaxFloats)
             if (valid) {
                 val remaining = toPair.subList(1, i) + toPair.subList(i + 1, toPair.size)
-                val subMatches = pairPlayers(remaining, relaxColorBalance, relaxFloats)
+                val subMatches = pairPlayers(remaining, relaxColorBalance, relaxFloats, depth + 1)
                 if (subMatches != null) {
                     val (p1CanW, p1CanB) = options
                     val p1Color: Char = when {
@@ -523,7 +524,8 @@ fun generateKnockout(players: List<Player>, matches: List<Match>, round: Int): L
             MatchResult.WHITE_WIN, MatchResult.FORFEIT_BLACK -> m.whiteId?.let { winners.add(it) }
             MatchResult.BLACK_WIN, MatchResult.FORFEIT_WHITE -> m.blackId?.let { winners.add(it) }
             MatchResult.BYE -> m.whiteId?.let { winners.add(it) }
-            else -> {}
+            // Draw in knockout: must be resolved by user before advancing. Skip silently.
+            MatchResult.DRAW, null -> {}
         }
     }
 

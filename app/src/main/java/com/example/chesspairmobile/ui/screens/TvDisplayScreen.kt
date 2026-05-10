@@ -63,7 +63,7 @@ fun TvDisplayScreen(
     val modelMatches = matches.map { m ->
         com.example.chesspairmobile.data.models.Match(
             id = m.id, round = m.round, whiteId = m.whiteId, blackId = m.blackId,
-            result = m.result?.let { com.example.chesspairmobile.data.models.MatchResult.valueOf(it) },
+            result = try { m.result?.let { com.example.chesspairmobile.data.models.MatchResult.valueOf(it) } } catch (_: Exception) { null },
             boardNumber = m.boardNumber, teamMatchId = m.teamMatchId,
             isManual = m.isManual, pgn = m.pgn
         )

@@ -7,8 +7,11 @@ import androidx.room.Room
 import com.example.chesspairmobile.data.db.*
 import com.example.chesspairmobile.data.models.*
 import com.example.chesspairmobile.logic.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
 import java.util.UUID
 import kotlin.math.ceil
 import kotlin.math.log2
@@ -218,6 +221,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun removePlayer(id: String) {
+        if (!requireStatus(TournamentStatus.SETUP)) return
         val tid = _activeTournamentId.value ?: return
         viewModelScope.launch {
             dao.deletePlayer(id)
@@ -228,6 +232,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun clearPlayers() {
+        if (!requireStatus(TournamentStatus.SETUP)) return
         val tid = _activeTournamentId.value ?: return
         viewModelScope.launch {
             dao.deletePlayersByTournament(tid)
@@ -391,9 +396,9 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         val t = getActiveTournament() ?: return
         if (t.status != TournamentStatus.ACTIVE.name) return
 
-        // Guard: all matches must have results
+        // Guard: all matches must have results (both regular and bye/manual matches)
         val roundMatches = _matches.value.filter { it.round == t.currentRound }
-        val incomplete = roundMatches.any { m -> m.blackId != null && m.result == null }
+        val incomplete = roundMatches.any { m -> m.result == null }
         if (incomplete) return
 
         val nextRound = t.currentRound + 1
@@ -420,8 +425,9 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
             viewModelScope.launch {
                 dao.deleteMatchesByRound(t.id, t.currentRound)
                 _matches.value = dao.getMatchesByTournament(t.id)
+                dao.updateTournament(t.copy(status = newStatus, currentRound = newRound))
+                _tournaments.value = dao.getAllTournaments()
             }
-            updateTournament(t.copy(status = newStatus, currentRound = newRound))
         }
     }
 
@@ -515,19 +521,23 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             try {
                 val json = buildBroadcastJson(t, standings)
-                val broadcastUrl = java.net.URI(url).toURL()
-                val client = broadcastUrl.openConnection() as java.net.HttpURLConnection
-                client.apply {
-                    requestMethod = "POST"
-                    setRequestProperty("Content-Type", "application/json")
-                    doOutput = true
-                    connectTimeout = 5000
-                    readTimeout = 5000
+                withContext(Dispatchers.IO) {
+                    val broadcastUrl = java.net.URI(url).toURL()
+                    val client = broadcastUrl.openConnection() as HttpURLConnection
+                    client.apply {
+                        requestMethod = "POST"
+                        setRequestProperty("Content-Type", "application/json")
+                        doOutput = true
+                        connectTimeout = 5000
+                        readTimeout = 5000
+                    }
+                    client.outputStream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+                    val code = client.responseCode
+                    client.disconnect()
+                    withContext(Dispatchers.Main) {
+                        onResult(code in 200..299, if (code in 200..299) "Results broadcast OK" else "Server returned $code")
+                    }
                 }
-                client.outputStream.use { it.write(json.toByteArray()) }
-                val code = client.responseCode
-                client.disconnect()
-                onResult(code in 200..299, if (code in 200..299) "Results broadcast OK" else "Server returned $code")
             } catch (e: Exception) {
                 onResult(false, "Broadcast failed: ${e.message}")
             }
@@ -535,25 +545,23 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun buildBroadcastJson(t: TournamentEntity, standings: List<PlayerStanding>): String {
-        val sb = StringBuilder()
-        sb.append("{")
-        sb.append("\"tournament\":\"${t.name}\",")
-        sb.append("\"round\":${t.currentRound},")
-        sb.append("\"totalRounds\":${t.totalRounds},")
-        sb.append("\"standings\":[")
-        standings.forEachIndexed { idx, s ->
-            sb.append("{")
-            sb.append("\"rank\":${idx + 1},")
-            sb.append("\"name\":\"${s.player.name}\",")
-            sb.append("\"rating\":${s.player.rating ?: 0},")
-            sb.append("\"score\":${s.score},")
-            sb.append("\"buchholz\":${s.buchholz},")
-            sb.append("\"sonnebornBerger\":${s.sonnebornBerger}")
-            sb.append("}")
-            if (idx < standings.size - 1) sb.append(",")
-        }
-        sb.append("]}")
-        return sb.toString()
+        val gson = com.google.gson.Gson()
+        val data = mapOf(
+            "tournament" to t.name,
+            "round" to t.currentRound,
+            "totalRounds" to t.totalRounds,
+            "standings" to standings.mapIndexed { idx, s ->
+                mapOf(
+                    "rank" to (idx + 1),
+                    "name" to s.player.name,
+                    "rating" to (s.player.rating ?: 0),
+                    "score" to s.score,
+                    "buchholz" to s.buchholz,
+                    "sonnebornBerger" to s.sonnebornBerger
+                )
+            }
+        )
+        return gson.toJson(data)
     }
 
     // ---- Forced pairings ----
@@ -850,6 +858,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
                         MatchResult.WHITE_WIN -> if (isW) matchGPW++ else matchGPB++
                         MatchResult.BLACK_WIN -> if (isW) matchGPB++ else matchGPW++
                         MatchResult.DRAW -> { matchGPW += 0.5; matchGPB += 0.5 }
+                        MatchResult.FORFEIT_WHITE -> if (isW) matchGPB++ else matchGPW++
+                        MatchResult.FORFEIT_BLACK -> if (isW) matchGPW++ else matchGPB++
                         else -> {}
                     }
                 }
