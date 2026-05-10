@@ -15,7 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -83,10 +82,26 @@ fun PlayersScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            // Quick-add bar for setup / active
-            if (canEdit) {
-                QuickAddBar(onAdd = { name -> onAddPlayer(name, null, null, null) })
-            } else {
+            // Search/add bar
+            if (players.size >= 8 || canEdit) {
+                SearchAddBar(
+                    searchQuery = searchQuery,
+                    onSearchChange = { searchQuery = it },
+                    onAdd = { name -> onAddPlayer(name, null, null, null) },
+                    canAdd = canEdit,
+                    showCount = players.size >= 8
+                )
+                if (searchQuery.isNotBlank() && players.size >= 8) {
+                    Text(
+                        "${filteredPlayers.size} of ${players.size} players",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+                    )
+                }
+                HorizontalDivider()
+            }
+            if (!canEdit && players.size < 8) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -94,36 +109,6 @@ fun PlayersScreen(
                     Icon(Icons.Default.Lock, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(8.dp))
                     Text("Tournament is completed — roster is locked", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                HorizontalDivider()
-            }
-
-            // Search bar
-            if (players.size >= 8) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search players by name, club, or title") },
-                    singleLine = true,
-                    leadingIcon = { Icon(Icons.Default.Search, null) },
-                    trailingIcon = {
-                        if (searchQuery.isNotBlank()) {
-                            IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Default.Clear, "Clear search")
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-                if (searchQuery.isNotBlank()) {
-                    Text(
-                        "${filteredPlayers.size} of ${players.size} players",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
-                    )
                 }
                 HorizontalDivider()
             }
@@ -202,40 +187,60 @@ fun PlayersScreen(
 }
 
 @Composable
-fun QuickAddBar(onAdd: (String) -> Unit) {
-    var name by remember { mutableStateOf("") }
+fun SearchAddBar(
+    searchQuery: String,
+    onSearchChange: (String) -> Unit,
+    onAdd: (String) -> Unit,
+    canAdd: Boolean,
+    showCount: Boolean
+) {
     val focusRequester = remember { FocusRequester() }
-    val focusManager = LocalFocusManager.current
+    val isSearching = searchQuery.isNotBlank()
 
     Surface(modifier = Modifier.fillMaxWidth(), tonalElevation = 1.dp) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        if (!canAdd) {
+            // Read-only search bar
             OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                placeholder = { Text("Type name and press Enter to add", style = MaterialTheme.typography.bodyMedium) },
+                value = searchQuery,
+                onValueChange = onSearchChange,
+                placeholder = { Text("Search players by name, club, or title", style = MaterialTheme.typography.bodyMedium) },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = {
-                    val trimmed = name.trim()
-                    if (trimmed.isNotBlank()) { onAdd(trimmed); name = "" }
-                    focusManager.clearFocus()
-                }),
-                modifier = Modifier.weight(1f).focusRequester(focusRequester)
-            )
-            Spacer(Modifier.width(8.dp))
-            FilledTonalButton(
-                onClick = {
-                    val trimmed = name.trim()
-                    if (trimmed.isNotBlank()) { onAdd(trimmed); name = ""; focusRequester.requestFocus() }
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                trailingIcon = {
+                    if (isSearching) {
+                        IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.Clear, "Clear search")
+                        }
+                    }
                 },
-                enabled = name.isNotBlank()
-            ) { Text("Add") }
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
+            )
+        } else {
+            // Combined search + add bar
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchChange,
+                    placeholder = { Text("Search or type new name to add", style = MaterialTheme.typography.bodyMedium) },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Search),
+                    modifier = Modifier.weight(1f).focusRequester(focusRequester)
+                )
+                Spacer(Modifier.width(8.dp))
+                FilledTonalButton(
+                    onClick = {
+                        val trimmed = searchQuery.trim()
+                        if (trimmed.isNotBlank()) { onAdd(trimmed); onSearchChange(""); focusRequester.requestFocus() }
+                    },
+                    enabled = searchQuery.isNotBlank()
+                ) { Text("Add") }
+            }
         }
     }
-    HorizontalDivider()
 }
 
 @Composable
