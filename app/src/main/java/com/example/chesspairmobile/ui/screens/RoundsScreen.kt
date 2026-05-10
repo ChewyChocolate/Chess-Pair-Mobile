@@ -515,48 +515,89 @@ fun ResultSelector(
     currentResult: MatchResult?,
     onSelect: (MatchResult?) -> Unit
 ) {
-    SingleChoiceSegmentedButtonRow(modifier = Modifier.padding(vertical = 4.dp)) {
-        SegmentedButton(
-            selected = currentResult == MatchResult.WHITE_WIN,
-            onClick = {
-                if (currentResult == MatchResult.WHITE_WIN) onSelect(null)
-                else onSelect(MatchResult.WHITE_WIN)
-            },
-            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
-            colors = SegmentedButtonDefaults.colors(
-                activeContainerColor = Color(0xFF2E7D32).copy(alpha = 0.15f),
-                activeContentColor = Color(0xFF2E7D32)
-            )
-        ) {
-            Text("1-0", fontWeight = FontWeight.Bold, maxLines = 1)
+    var showForfeitMenu by remember { mutableStateOf(false) }
+
+    Column {
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.padding(vertical = 4.dp)) {
+            SegmentedButton(
+                selected = currentResult == MatchResult.WHITE_WIN,
+                onClick = {
+                    if (currentResult == MatchResult.WHITE_WIN) onSelect(null)
+                    else onSelect(MatchResult.WHITE_WIN)
+                },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 5),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = Color(0xFF2E7D32).copy(alpha = 0.15f),
+                    activeContentColor = Color(0xFF2E7D32)
+                )
+            ) {
+                Text("1-0", fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            SegmentedButton(
+                selected = currentResult == MatchResult.FORFEIT_BLACK,
+                onClick = {
+                    if (currentResult == MatchResult.FORFEIT_BLACK) onSelect(null)
+                    else onSelect(MatchResult.FORFEIT_BLACK)
+                },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 5),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = Color(0xFF4A148C).copy(alpha = 0.15f),
+                    activeContentColor = Color(0xFF4A148C)
+                )
+            ) {
+                Text("+ -", fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            SegmentedButton(
+                selected = currentResult == MatchResult.DRAW,
+                onClick = {
+                    if (currentResult == MatchResult.DRAW) onSelect(null)
+                    else onSelect(MatchResult.DRAW)
+                },
+                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 5),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = Color(0xFF546E7A).copy(alpha = 0.15f),
+                    activeContentColor = Color(0xFF546E7A)
+                )
+            ) {
+                Text("\u00BD-\u00BD", fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            SegmentedButton(
+                selected = currentResult == MatchResult.FORFEIT_WHITE,
+                onClick = {
+                    if (currentResult == MatchResult.FORFEIT_WHITE) onSelect(null)
+                    else onSelect(MatchResult.FORFEIT_WHITE)
+                },
+                shape = SegmentedButtonDefaults.itemShape(index = 3, count = 5),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = Color(0xFF4A148C).copy(alpha = 0.15f),
+                    activeContentColor = Color(0xFF4A148C)
+                )
+            ) {
+                Text("- +", fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            SegmentedButton(
+                selected = currentResult == MatchResult.BLACK_WIN,
+                onClick = {
+                    if (currentResult == MatchResult.BLACK_WIN) onSelect(null)
+                    else onSelect(MatchResult.BLACK_WIN)
+                },
+                shape = SegmentedButtonDefaults.itemShape(index = 4, count = 5),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = Color(0xFFC62828).copy(alpha = 0.15f),
+                    activeContentColor = Color(0xFFC62828)
+                )
+            ) {
+                Text("0-1", fontWeight = FontWeight.Bold, maxLines = 1)
+            }
         }
-        SegmentedButton(
-            selected = currentResult == MatchResult.DRAW,
-            onClick = {
-                if (currentResult == MatchResult.DRAW) onSelect(null)
-                else onSelect(MatchResult.DRAW)
-            },
-            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
-            colors = SegmentedButtonDefaults.colors(
-                activeContainerColor = Color(0xFF546E7A).copy(alpha = 0.15f),
-                activeContentColor = Color(0xFF546E7A)
+        // Legend
+        if (currentResult == MatchResult.FORFEIT_WHITE || currentResult == MatchResult.FORFEIT_BLACK) {
+            Text(
+                if (currentResult == MatchResult.FORFEIT_WHITE) "Black wins by forfeit" else "White wins by forfeit",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp)
             )
-        ) {
-            Text("\u00BD-\u00BD", fontWeight = FontWeight.Bold, maxLines = 1)
-        }
-        SegmentedButton(
-            selected = currentResult == MatchResult.BLACK_WIN,
-            onClick = {
-                if (currentResult == MatchResult.BLACK_WIN) onSelect(null)
-                else onSelect(MatchResult.BLACK_WIN)
-            },
-            shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
-            colors = SegmentedButtonDefaults.colors(
-                activeContainerColor = Color(0xFFC62828).copy(alpha = 0.15f),
-                activeContentColor = Color(0xFFC62828)
-            )
-        ) {
-            Text("0-1", fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }

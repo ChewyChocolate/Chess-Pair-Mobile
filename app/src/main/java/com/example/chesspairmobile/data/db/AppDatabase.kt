@@ -56,6 +56,11 @@ class Converters {
     @TypeConverter
     fun toMatchResult(value: String?): MatchResult? = try { value?.let { MatchResult.valueOf(it) } } catch (_: Exception) { null }
 
+    @TypeConverter
+    fun fromAccelerationMode(value: AccelerationMode): String = value.name
+    @TypeConverter
+    fun toAccelerationMode(value: String): AccelerationMode = try { AccelerationMode.valueOf(value) } catch (_: Exception) { AccelerationMode.NONE }
+
     companion object {
         private val defaultTiebreaks = listOf(
             TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
@@ -72,9 +77,10 @@ data class PlayerEntity(
     val rating: Int?,
     val title: String?,
     val club: String?,
+    val pairingNumber: Int = 0,
     val active: Boolean,
     val withdrawn: Boolean,
-    val requestedByes: String, // JSON list of Int
+    val requestedByes: String,
     val penaltyPoints: Double
 )
 
@@ -117,7 +123,10 @@ data class TournamentEntity(
     val pointsForDraw: Double,
     val pointsForLoss: Double,
     val avoidClubPairings: Boolean,
-    val tiebreakOrder: String // JSON list
+    val tiebreakOrder: String,
+    val accelerationMode: String = "NONE",
+    val liveBroadcastUrl: String? = null,
+    val forcedPairings: String = "[]"
 )
 
 @Dao
@@ -206,7 +215,7 @@ interface TournamentDao {
 
 @Database(
     entities = [TournamentEntity::class, PlayerEntity::class, TeamEntity::class, MatchEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -223,7 +232,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "chesspair-db"
-                ).build().also { INSTANCE = it }
+                ).fallbackToDestructiveMigration(true).build().also { INSTANCE = it }
             }
         }
     }

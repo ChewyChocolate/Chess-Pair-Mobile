@@ -154,8 +154,8 @@ fun ChessPairApp() {
                             restoreState = true
                         }
                     },
-                    onCreateTournament = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks ->
-                        viewModel.createTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks)
+                    onCreateTournament = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode ->
+                        viewModel.createTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode)
                             navController.navigate("dashboard") {
                                 popUpTo("home") { saveState = true }
                                 launchSingleTop = true
@@ -194,7 +194,8 @@ fun ChessPairApp() {
                     onRemovePlayer = { id -> viewModel.removePlayer(id) },
                     onWithdrawPlayer = { id -> viewModel.withdrawPlayer(id) },
                     onRejoinPlayer = { id -> viewModel.rejoinPlayer(id) },
-                    onClearPlayers = { viewModel.clearPlayers() }
+                    onClearPlayers = { viewModel.clearPlayers() },
+                    onUpdatePlayer = { player -> viewModel.updatePlayer(player) }
                 )
             }
 
@@ -240,7 +241,10 @@ fun ChessPairApp() {
                     tournament = activeTournament,
                     players = players,
                     matches = matches,
-                    onExportCsv = { "" }
+                    onExportCsv = { "" },
+                    onUpdateTiebreakOrder = { order ->
+                        viewModel.updateTournamentSettings(tiebreakOrder = order)
+                    }
                 )
             }
 

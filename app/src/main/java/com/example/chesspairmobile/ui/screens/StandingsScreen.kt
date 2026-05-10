@@ -22,15 +22,17 @@ import com.example.chesspairmobile.data.db.PlayerEntity
 import com.example.chesspairmobile.data.db.TournamentEntity
 import com.example.chesspairmobile.data.models.PlayerStanding
 import com.example.chesspairmobile.data.models.TiebreakType
+import com.example.chesspairmobile.ui.components.TiebreakConfigPanel
 import com.example.chesspairmobile.logic.calculateStandings
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun StandingsScreen(
     tournament: TournamentEntity?,
     players: List<PlayerEntity>,
     matches: List<MatchEntity>,
-    onExportCsv: () -> String
+    onExportCsv: () -> String,
+    onUpdateTiebreakOrder: ((List<TiebreakType>) -> Unit)? = null
 ) {
     if (tournament == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -138,6 +140,15 @@ fun StandingsScreen(
                     }
                     HorizontalDivider()
                 }
+            }
+
+            // Tiebreak settings panel
+            if (onUpdateTiebreakOrder != null && tournament.status == "SETUP") {
+                TiebreakConfigPanel(
+                    tiebreakOrder = tiebreakOrder,
+                    onTiebreakOrderChanged = onUpdateTiebreakOrder
+                )
+                HorizontalDivider()
             }
 
             // Table header

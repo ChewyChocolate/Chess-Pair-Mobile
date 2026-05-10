@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.chesspairmobile.data.db.TournamentEntity
 import com.example.chesspairmobile.data.models.*
+import com.example.chesspairmobile.ui.components.TiebreakConfigPanel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -24,7 +25,7 @@ fun HomeScreen(
     tournaments: List<TournamentEntity>,
     activeId: String?,
     onSelectTournament: (String) -> Unit,
-    onCreateTournament: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>) -> Unit,
+    onCreateTournament: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode) -> Unit,
     onDeleteTournament: (String) -> Unit
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -99,8 +100,8 @@ fun HomeScreen(
     if (showCreateDialog) {
         CreateTournamentDialog(
             onDismiss = { showCreateDialog = false },
-            onCreate = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks ->
-                onCreateTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks)
+            onCreate = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode ->
+                onCreateTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode)
                 showCreateDialog = false
             }
         )
@@ -187,7 +188,7 @@ fun TournamentTypeChip(type: String) {
 @Composable
 fun CreateTournamentDialog(
     onDismiss: () -> Unit,
-    onCreate: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>) -> Unit
+    onCreate: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
     var section by remember { mutableStateOf("") }
@@ -200,6 +201,11 @@ fun CreateTournamentDialog(
     var lossPts by remember { mutableStateOf("0") }
     var avoidClubs by remember { mutableStateOf(false) }
     var autoCalc by remember { mutableStateOf(false) }
+    var accelMode by remember { mutableStateOf(AccelerationMode.NONE) }
+    var tiebreakOrder by remember { mutableStateOf(
+        listOf(TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
+            TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.RATING)
+    ) }
     var expandedType by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -253,12 +259,25 @@ fun CreateTournamentDialog(
                     Text("Avoid club pairings")
                 }
 
+                if (type == TournamentType.SWISS) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = accelMode != AccelerationMode.NONE, onCheckedChange = { accelMode = if (it) AccelerationMode.BAKU else AccelerationMode.NONE })
+                        Text("Accelerated pairings (Baku)")
+                    }
+                }
+
                 Text("Scoring", style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = winPts, onValueChange = { winPts = it }, label = { Text("Win") }, modifier = Modifier.weight(1f), singleLine = true)
                     OutlinedTextField(value = drawPts, onValueChange = { drawPts = it }, label = { Text("Draw") }, modifier = Modifier.weight(1f), singleLine = true)
                     OutlinedTextField(value = lossPts, onValueChange = { lossPts = it }, label = { Text("Loss") }, modifier = Modifier.weight(1f), singleLine = true)
                 }
+
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                TiebreakConfigPanel(
+                    tiebreakOrder = tiebreakOrder,
+                    onTiebreakOrderChanged = { tiebreakOrder = it }
+                )
             }
         },
         confirmButton = {
@@ -270,8 +289,8 @@ fun CreateTournamentDialog(
                             (rounds.toIntOrNull() ?: 5).coerceAtLeast(1), timeControl.ifBlank { null },
                             Triple(winPts.toDoubleOrNull() ?: 1.0, drawPts.toDoubleOrNull() ?: 0.5, lossPts.toDoubleOrNull() ?: 0.0),
                             avoidClubs, autoCalc, false, section.ifBlank { null },
-                            listOf(TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
-                                TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.RATING)
+                            tiebreakOrder,
+                            accelMode
                         )
                     }
                 },

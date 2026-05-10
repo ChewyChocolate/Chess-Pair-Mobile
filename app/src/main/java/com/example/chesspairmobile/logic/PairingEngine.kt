@@ -92,6 +92,18 @@ fun calculateScores(
                     roundScores[m.whiteId] = (roundScores[m.whiteId] ?: 0.0) + pointsForDraw
                     roundScores[m.blackId] = (roundScores[m.blackId] ?: 0.0) + pointsForDraw
                 }
+                MatchResult.FORFEIT_WHITE -> {
+                    data.scores[m.blackId] = (data.scores[m.blackId] ?: 0.0) + pointsForWin
+                    data.scores[m.whiteId] = (data.scores[m.whiteId] ?: 0.0) + pointsForLoss
+                    roundScores[m.blackId] = (roundScores[m.blackId] ?: 0.0) + pointsForWin
+                    roundScores[m.whiteId] = (roundScores[m.whiteId] ?: 0.0) + pointsForLoss
+                }
+                MatchResult.FORFEIT_BLACK -> {
+                    data.scores[m.whiteId] = (data.scores[m.whiteId] ?: 0.0) + pointsForWin
+                    data.scores[m.blackId] = (data.scores[m.blackId] ?: 0.0) + pointsForLoss
+                    roundScores[m.whiteId] = (roundScores[m.whiteId] ?: 0.0) + pointsForWin
+                    roundScores[m.blackId] = (roundScores[m.blackId] ?: 0.0) + pointsForLoss
+                }
                 MatchResult.BYE -> { /* handled separately */ }
             }
         } else if (m.whiteId != null && m.result == MatchResult.BYE) {
@@ -129,7 +141,8 @@ fun generateSwiss(
     pointsForDraw: Double,
     pointsForLoss: Double,
     avoidClubPairings: Boolean,
-    forcedPairings: List<ForcedPairing>
+    forcedPairings: List<ForcedPairing>,
+    accelerationMode: AccelerationMode = AccelerationMode.NONE
 ): List<Match> {
     val data = calculateScores(players, matches, pointsForWin, pointsForDraw, pointsForLoss)
     val resultMatches = mutableListOf<Match>()
@@ -159,6 +172,13 @@ fun generateSwiss(
         pairedPlayers.add(fp.blackId)
     }
 
+    // Compare function: score then pairingNumber (or rating as fallback)
+    val comparePlayers = compareByDescending<Player> { data.scores[it.id] ?: 0.0 }
+        .thenByDescending {
+            if (it.pairingNumber > 0) 1_000_000 - it.pairingNumber // lower pairing# = higher seed
+            else it.rating ?: 0
+        }
+
     // Filter players to pair
     var playersToPair = players
         .filter { p ->
@@ -166,8 +186,12 @@ fun generateSwiss(
             !p.requestedByes.contains(round) &&
             !pairedPlayers.contains(p.id)
         }
-        .sortedWith(compareByDescending<Player> { data.scores[it.id] ?: 0.0 }
-            .thenByDescending { it.rating ?: 0 })
+        .sortedWith(comparePlayers)
+
+    // Apply acceleration for round 1
+    if (round == 1 && accelerationMode != AccelerationMode.NONE && playersToPair.size >= 4) {
+        playersToPair = applyAcceleration(playersToPair, accelerationMode)
+    }
 
     // Handle bye for odd number
     if (playersToPair.size % 2 != 0) {
@@ -496,9 +520,9 @@ fun generateKnockout(players: List<Player>, matches: List<Match>, round: Int): L
 
     prevRoundMatches.forEach { m ->
         when (m.result) {
-            MatchResult.WHITE_WIN, MatchResult.BYE -> m.whiteId?.let { winners.add(it) }
-            MatchResult.BLACK_WIN -> m.blackId?.let { winners.add(it) }
-            MatchResult.DRAW -> m.whiteId?.let { winners.add(it) }
+            MatchResult.WHITE_WIN, MatchResult.FORFEIT_BLACK -> m.whiteId?.let { winners.add(it) }
+            MatchResult.BLACK_WIN, MatchResult.FORFEIT_WHITE -> m.blackId?.let { winners.add(it) }
+            MatchResult.BYE -> m.whiteId?.let { winners.add(it) }
             else -> {}
         }
     }
@@ -574,6 +598,8 @@ fun calculateTeamScores(
                         MatchResult.WHITE_WIN -> if (isTeamAWhite) teamAGP++ else teamBGP++
                         MatchResult.BLACK_WIN -> if (isTeamAWhite) teamBGP++ else teamAGP++
                         MatchResult.DRAW -> { teamAGP += 0.5; teamBGP += 0.5 }
+                        MatchResult.FORFEIT_WHITE -> if (isTeamAWhite) teamBGP++ else teamAGP++
+                        MatchResult.FORFEIT_BLACK -> if (isTeamAWhite) teamAGP++ else teamBGP++
                         MatchResult.BYE -> {}
                         null -> {}
                     }
@@ -592,4 +618,58 @@ fun calculateTeamScores(
     }
 
     return teamMatchPoints to teamGamePoints
+}
+
+// ---- Acceleration ----
+
+fun applyAcceleration(players: List<Player>, mode: AccelerationMode): List<Player> {
+    if (players.size < 4) return players
+
+    return when (mode) {
+        AccelerationMode.BAKU -> {
+            // Split into 4 groups by rating/seed
+            val half = players.size / 2
+            val quarter = players.size / 4
+            val top = players
+            val g1 = top.subList(0, quarter)            // top quarter
+            val g2 = top.subList(quarter, half)         // second quarter
+            val g3 = top.subList(half, half + quarter)   // third quarter
+            val g4 = top.subList(half + quarter, top.size) // bottom quarter
+
+            // G1 vs G2 interleaved, G3 vs G4 interleaved
+            val a = mutableListOf<Player>()
+            for (i in 0 until maxOf(g1.size, g2.size)) {
+                g1.getOrNull(i)?.let { a.add(it) }
+                g2.getOrNull(i)?.let { a.add(it) }
+            }
+            val b = mutableListOf<Player>()
+            for (i in 0 until maxOf(g3.size, g4.size)) {
+                g3.getOrNull(i)?.let { b.add(it) }
+                g4.getOrNull(i)?.let { b.add(it) }
+            }
+            a + b
+        }
+        AccelerationMode.LIM -> {
+            // Lim: top quarter plays bottom quarter of top half, middle plays middle
+            val half = players.size / 2
+            val quarter = players.size / 4
+            val g1 = players.subList(0, quarter)
+            val g2 = players.subList(quarter, half)
+            val g3 = players.subList(half, half + quarter)
+            val g4 = players.subList(half + quarter, players.size)
+
+            val upper = mutableListOf<Player>()
+            for (i in 0 until maxOf(g1.size, g3.size)) {
+                g1.getOrNull(i)?.let { upper.add(it) }
+                g3.getOrNull(i)?.let { upper.add(it) }
+            }
+            val lower = mutableListOf<Player>()
+            for (i in 0 until maxOf(g2.size, g4.size)) {
+                g2.getOrNull(i)?.let { lower.add(it) }
+                g4.getOrNull(i)?.let { lower.add(it) }
+            }
+            upper + lower
+        }
+        AccelerationMode.NONE -> players
+    }
 }

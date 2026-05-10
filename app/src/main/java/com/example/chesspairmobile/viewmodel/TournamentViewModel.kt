@@ -90,7 +90,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         tiebreakOrder: List<TiebreakType> = listOf(
             TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
             TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.RATING
-        )
+        ),
+        accelerationMode: AccelerationMode = AccelerationMode.NONE
     ) {
         val rounds = totalRounds.coerceAtLeast(1)
         val t = TournamentEntity(
@@ -109,7 +110,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
             pointsForDraw = points.second,
             pointsForLoss = points.third,
             avoidClubPairings = avoidClubs,
-            tiebreakOrder = converters.fromTiebreakList(tiebreakOrder)
+            tiebreakOrder = converters.fromTiebreakList(tiebreakOrder),
+            accelerationMode = accelerationMode.name
         )
         viewModelScope.launch {
             dao.insertTournament(t)
@@ -341,7 +343,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
                 when (tournamentType) {
                     TournamentType.ROUND_ROBIN -> generateRoundRobin(players, round)
                     TournamentType.KNOCKOUT -> generateKnockout(players, matches, round)
-                    TournamentType.SWISS -> generateSwiss(
+                    TournamentType.SWISS -> generateFideDutch(
                         players = players,
                         matches = matches,
                         round = round,
@@ -350,7 +352,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
                         pointsForDraw = t.pointsForDraw,
                         pointsForLoss = t.pointsForLoss,
                         avoidClubPairings = t.avoidClubPairings,
-                        forcedPairings = emptyList()
+                        forcedPairings = getForcedPairingList(),
+                        accelerationMode = try { AccelerationMode.valueOf(t.accelerationMode) } catch (_: Exception) { AccelerationMode.NONE }
                     )
                 }
             }
@@ -471,6 +474,110 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    // ---- Tournament editing ----
+    fun updateTournamentSettings(
+        name: String? = null,
+        section: String? = null,
+        timeControl: String? = null,
+        pointsForWin: Double? = null,
+        pointsForDraw: Double? = null,
+        pointsForLoss: Double? = null,
+        avoidClubPairings: Boolean? = null,
+        accelerationMode: AccelerationMode? = null,
+        liveBroadcastUrl: String? = null,
+        tiebreakOrder: List<TiebreakType>? = null
+    ) {
+        val t = getActiveTournament() ?: return
+        val updated = t.copy(
+            name = name ?: t.name,
+            section = section ?: t.section,
+            timeControl = timeControl ?: t.timeControl,
+            pointsForWin = pointsForWin ?: t.pointsForWin,
+            pointsForDraw = pointsForDraw ?: t.pointsForDraw,
+            pointsForLoss = pointsForLoss ?: t.pointsForLoss,
+            avoidClubPairings = avoidClubPairings ?: t.avoidClubPairings,
+            accelerationMode = accelerationMode?.name ?: t.accelerationMode,
+            liveBroadcastUrl = liveBroadcastUrl ?: t.liveBroadcastUrl,
+            tiebreakOrder = tiebreakOrder?.let { converters.fromTiebreakList(it) } ?: t.tiebreakOrder
+        )
+        updateTournament(updated)
+    }
+
+    // ---- Live broadcast ----
+    fun broadcastResults(onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        val t = getActiveTournament() ?: return
+        val url = t.liveBroadcastUrl ?: return
+        val standings = calculateStandings(
+            getTournamentPlayers(), getTournamentMatches(),
+            t.pointsForWin, t.pointsForDraw, t.pointsForLoss,
+            converters.toTiebreakList(t.tiebreakOrder)
+        )
+        viewModelScope.launch {
+            try {
+                val json = buildBroadcastJson(t, standings)
+                val broadcastUrl = java.net.URI(url).toURL()
+                val client = broadcastUrl.openConnection() as java.net.HttpURLConnection
+                client.apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json")
+                    doOutput = true
+                    connectTimeout = 5000
+                    readTimeout = 5000
+                }
+                client.outputStream.use { it.write(json.toByteArray()) }
+                val code = client.responseCode
+                client.disconnect()
+                onResult(code in 200..299, if (code in 200..299) "Results broadcast OK" else "Server returned $code")
+            } catch (e: Exception) {
+                onResult(false, "Broadcast failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun buildBroadcastJson(t: TournamentEntity, standings: List<PlayerStanding>): String {
+        val sb = StringBuilder()
+        sb.append("{")
+        sb.append("\"tournament\":\"${t.name}\",")
+        sb.append("\"round\":${t.currentRound},")
+        sb.append("\"totalRounds\":${t.totalRounds},")
+        sb.append("\"standings\":[")
+        standings.forEachIndexed { idx, s ->
+            sb.append("{")
+            sb.append("\"rank\":${idx + 1},")
+            sb.append("\"name\":\"${s.player.name}\",")
+            sb.append("\"rating\":${s.player.rating ?: 0},")
+            sb.append("\"score\":${s.score},")
+            sb.append("\"buchholz\":${s.buchholz},")
+            sb.append("\"sonnebornBerger\":${s.sonnebornBerger}")
+            sb.append("}")
+            if (idx < standings.size - 1) sb.append(",")
+        }
+        sb.append("]}")
+        return sb.toString()
+    }
+
+    // ---- Forced pairings ----
+    fun addForcedPairing(whiteId: String, blackId: String) {
+        val t = getActiveTournament() ?: return
+        val current = t.forcedPairings
+        val fps = converters.toStringList(current).toMutableList()
+        fps.add("$whiteId:$blackId")
+        updateTournament(t.copy(forcedPairings = converters.fromStringList(fps)))
+    }
+
+    fun clearForcedPairings() {
+        val t = getActiveTournament() ?: return
+        updateTournament(t.copy(forcedPairings = "[]"))
+    }
+
+    fun getForcedPairingList(): List<ForcedPairing> {
+        val t = getActiveTournament() ?: return emptyList()
+        return converters.toStringList(t.forcedPairings).mapNotNull { entry ->
+            val parts = entry.split(":")
+            if (parts.size == 2) ForcedPairing(parts[0], parts[1]) else null
+        }
+    }
+
     fun activePlayerCount(): Int {
         return _players.value.count { it.active && !it.withdrawn }
     }
@@ -478,7 +585,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     // Entity converters
     fun entityToPlayer(e: PlayerEntity) = Player(
         id = e.id, name = e.name, rating = e.rating, title = e.title,
-        club = e.club, active = e.active, withdrawn = e.withdrawn,
+        club = e.club, pairingNumber = e.pairingNumber,
+        active = e.active, withdrawn = e.withdrawn,
         requestedByes = converters.toIntList(e.requestedByes), penaltyPoints = e.penaltyPoints
     )
 

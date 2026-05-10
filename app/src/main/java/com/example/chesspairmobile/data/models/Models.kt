@@ -2,12 +2,18 @@ package com.example.chesspairmobile.data.models
 
 import java.util.UUID
 
+// ---- Acceleration modes ----
+enum class AccelerationMode { NONE, BAKU, LIM }
+
+// ---- Core data classes ----
+
 data class Player(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val rating: Int? = null,
     val title: String? = null,
     val club: String? = null,
+    val pairingNumber: Int = 0, // FIDE pairing number; 0 = use rating
     val active: Boolean = true,
     val withdrawn: Boolean = false,
     val requestedByes: List<Int> = emptyList(),
@@ -33,7 +39,7 @@ data class Match(
 )
 
 enum class MatchResult {
-    WHITE_WIN, BLACK_WIN, DRAW, BYE
+    WHITE_WIN, BLACK_WIN, DRAW, BYE, FORFEIT_WHITE, FORFEIT_BLACK
 }
 
 data class ForcedPairing(
@@ -50,8 +56,11 @@ enum class TournamentStatus {
 }
 
 enum class TiebreakType {
-    DIRECT_ENCOUNTER, BUCHHOLZ, MEDIAN_BUCHHOLZ, SONNEBORN_BERGER, MOST_WINS, RATING
+    DIRECT_ENCOUNTER, BUCHHOLZ, MEDIAN_BUCHHOLZ, BUCHHOLZ_CUT1,
+    SONNEBORN_BERGER, MOST_WINS, RATING, PROGRESSIVE
 }
+
+enum class LiveBroadcastMode { OFF, HTTP_POST }
 
 data class Tournament(
     val id: String = UUID.randomUUID().toString(),
@@ -77,9 +86,10 @@ data class Tournament(
         TiebreakType.SONNEBORN_BERGER,
         TiebreakType.MOST_WINS,
         TiebreakType.RATING
-    )
-) {
-}
+    ),
+    val accelerationMode: AccelerationMode = AccelerationMode.NONE,
+    val liveBroadcastUrl: String? = null
+)
 
 data class PlayerStanding(
     val player: Player,
@@ -87,8 +97,11 @@ data class PlayerStanding(
     val buchholz: Double,
     val sonnebornBerger: Double,
     val medianBuchholz: Double,
+    val buchholzCut1: Double = 0.0,
     val mostWins: Int,
-    val directEncounter: Double
+    val directEncounter: Double,
+    val progressive: Double = 0.0,
+    val performanceRating: Int = 0
 )
 
 data class TeamStanding(
@@ -102,8 +115,8 @@ data class PlayerMatchStat(
     val round: Int,
     val opponentId: String?,
     val opponentName: String,
-    val color: Char?, // 'W', 'B', or null
-    val result: String? // "1", "0", "0.5", or null
+    val color: Char?,
+    val result: String?
 )
 
 data class PlayerStatsResult(

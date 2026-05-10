@@ -31,7 +31,9 @@ fun getPlayerStats(
             MatchResult.BLACK_WIN -> if (isWhite) "0" else "1"
             MatchResult.DRAW -> "0.5"
             MatchResult.BYE -> "1"
-            else -> null
+            MatchResult.FORFEIT_WHITE -> if (isWhite) "0" else "1"
+            MatchResult.FORFEIT_BLACK -> if (isWhite) "1" else "0"
+            null -> null
         }
 
         stats.add(

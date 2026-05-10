@@ -22,6 +22,8 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.example.chesspairmobile.data.db.PlayerEntity
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,13 +36,23 @@ fun PlayersScreen(
     onRemovePlayer: (String) -> Unit,
     onWithdrawPlayer: (String) -> Unit,
     onRejoinPlayer: (String) -> Unit,
-    onClearPlayers: () -> Unit
+    onClearPlayers: () -> Unit,
+    onUpdatePlayer: (PlayerEntity) -> Unit = {}
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var showBulkDialog by remember { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
-    val snackbarHostState = remember { SnackbarHostState() }
+    var searchQuery by remember { mutableStateOf("") }
     val isSetup = tournamentStatus == "SETUP"
+
+    val filteredPlayers = remember(players, searchQuery) {
+        if (searchQuery.isBlank()) players
+        else players.filter {
+            it.name.contains(searchQuery, ignoreCase = true) ||
+            (it.club?.contains(searchQuery, ignoreCase = true) == true) ||
+            (it.title?.contains(searchQuery, ignoreCase = true) == true)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -61,20 +73,18 @@ fun PlayersScreen(
             )
         },
         floatingActionButton = {
-            if (isSetup || tournamentStatus == "ACTIVE") {
+            if (isSetup) {
                 FloatingActionButton(onClick = { showAddDialog = true }) {
                     Icon(Icons.Default.PersonAdd, "Add Player")
                 }
             }
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
+            // Quick-add bar for setup
             if (isSetup) {
-                QuickAddBar(onAdd = { name ->
-                    onAddPlayer(name, null, null, null)
-                })
-            } else if (tournamentStatus == "COMPLETED") {
+                QuickAddBar(onAdd = { name -> onAddPlayer(name, null, null, null) })
+            } else {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -86,11 +96,43 @@ fun PlayersScreen(
                 HorizontalDivider()
             }
 
-            if (players.isEmpty()) {
-                Box(
-                    Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
+            // Search bar
+            if (players.size >= 8) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search players by name, club, or title") },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotBlank()) {
+                            IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Clear, "Clear search")
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+                if (searchQuery.isNotBlank()) {
+                    Text(
+                        "${filteredPlayers.size} of ${players.size} players",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+                    )
+                }
+                HorizontalDivider()
+            }
+
+            // Player list
+            if (filteredPlayers.isEmpty() && searchQuery.isNotBlank()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No players match \"$searchQuery\"", style = MaterialTheme.typography.bodyLarge)
+                }
+            } else if (players.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.People, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
                         Spacer(Modifier.height(12.dp))
@@ -103,19 +145,14 @@ fun PlayersScreen(
                 }
             } else {
                 LazyColumn {
-                    items(players) { player ->
+                    items(filteredPlayers, key = { it.id }) { player ->
                         PlayerCard(
                             player = player,
                             isSetup = isSetup,
-                            onRemove = {
-                                onRemovePlayer(player.id)
-                            },
-                            onWithdraw = {
-                                onWithdrawPlayer(player.id)
-                            },
-                            onRejoin = {
-                                onRejoinPlayer(player.id)
-                            }
+                            onRemove = { onRemovePlayer(player.id) },
+                            onWithdraw = { onWithdrawPlayer(player.id) },
+                            onRejoin = { onRejoinPlayer(player.id) },
+                            onUpdatePlayer = onUpdatePlayer
                         )
                     }
                     item { Spacer(Modifier.height(80.dp)) }
@@ -167,14 +204,9 @@ fun QuickAddBar(onAdd: (String) -> Unit) {
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
 
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        tonalElevation = 1.dp
-    ) {
+    Surface(modifier = Modifier.fillMaxWidth(), tonalElevation = 1.dp) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
@@ -182,38 +214,22 @@ fun QuickAddBar(onAdd: (String) -> Unit) {
                 onValueChange = { name = it },
                 placeholder = { Text("Type name and press Enter to add", style = MaterialTheme.typography.bodyMedium) },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Words,
-                    imeAction = ImeAction.Done
-                ),
-                keyboardActions = KeyboardActions(
-                    onDone = {
-                        val trimmed = name.trim()
-                        if (trimmed.isNotBlank()) {
-                            onAdd(trimmed)
-                            name = ""
-                        }
-                        focusManager.clearFocus()
-                    }
-                ),
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester)
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    val trimmed = name.trim()
+                    if (trimmed.isNotBlank()) { onAdd(trimmed); name = "" }
+                    focusManager.clearFocus()
+                }),
+                modifier = Modifier.weight(1f).focusRequester(focusRequester)
             )
             Spacer(Modifier.width(8.dp))
             FilledTonalButton(
                 onClick = {
                     val trimmed = name.trim()
-                    if (trimmed.isNotBlank()) {
-                        onAdd(trimmed)
-                        name = ""
-                        focusRequester.requestFocus()
-                    }
+                    if (trimmed.isNotBlank()) { onAdd(trimmed); name = ""; focusRequester.requestFocus() }
                 },
                 enabled = name.isNotBlank()
-            ) {
-                Text("Add")
-            }
+            ) { Text("Add") }
         }
     }
     HorizontalDivider()
@@ -225,18 +241,26 @@ fun PlayerCard(
     isSetup: Boolean,
     onRemove: () -> Unit,
     onWithdraw: () -> Unit,
-    onRejoin: () -> Unit
+    onRejoin: () -> Unit,
+    onUpdatePlayer: (PlayerEntity) -> Unit = {}
 ) {
+    var showByeDialog by remember { mutableStateOf(false) }
+    val gson = remember { Gson() }
+
+    val byeRounds: List<Int> = remember(player.requestedByes) {
+        try {
+            val type = object : TypeToken<List<Int>>() {}.type
+            gson.fromJson(player.requestedByes, type) ?: emptyList()
+        } catch (_: Exception) { emptyList() }
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .then(if (player.withdrawn) Modifier.alpha(0.55f) else Modifier)
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -247,42 +271,46 @@ fun PlayerCard(
                     )
                     if (player.withdrawn) {
                         Spacer(Modifier.width(8.dp))
-                        Surface(
-                            shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.errorContainer
-                        ) {
-                            Text(
-                                "W/D",
-                                style = MaterialTheme.typography.labelSmall,
+                        Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.errorContainer) {
+                            Text("W/D", style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
+                                color = MaterialTheme.colorScheme.onErrorContainer)
                         }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    player.rating?.let {
-                        Text("Rating: $it", style = MaterialTheme.typography.bodySmall)
-                    }
+                    player.rating?.let { Text("Rating: $it", style = MaterialTheme.typography.bodySmall) }
                     player.title?.let {
-                        Surface(
-                            shape = MaterialTheme.shapes.extraSmall,
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                        ) {
+                        Surface(shape = MaterialTheme.shapes.extraSmall, color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)) {
                             Text(it, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
                         }
                     }
-                    player.club?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    player.club?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+                // Requested byes display
+                if (byeRounds.isNotEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "Bye rounds: ${byeRounds.joinToString(", ")}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
-            if (player.withdrawn) {
-                TextButton(onClick = onRejoin) { Text("Rejoin") }
-            } else {
-                TextButton(onClick = onWithdraw) { Text("Withdraw") }
+
+            // Action buttons
+            if (isSetup) {
+                IconButton(onClick = { showByeDialog = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.EventBusy, "Edit byes", Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+                }
             }
             if (isSetup) {
+                if (player.withdrawn) {
+                    TextButton(onClick = onRejoin) { Text("Rejoin") }
+                } else {
+                    TextButton(onClick = onWithdraw) { Text("Withdraw") }
+                }
                 Spacer(Modifier.width(4.dp))
                 IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Default.Close, "Remove", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
@@ -290,6 +318,59 @@ fun PlayerCard(
             }
         }
     }
+
+    if (showByeDialog) {
+        RequestedByeDialog(
+            byeRounds = byeRounds,
+            totalRounds = 99,
+            onDismiss = { showByeDialog = false },
+            onSave = { newByes ->
+                onUpdatePlayer(player.copy(requestedByes = gson.toJson(newByes)))
+                showByeDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun RequestedByeDialog(
+    byeRounds: List<Int>,
+    totalRounds: Int,
+    onDismiss: () -> Unit,
+    onSave: (List<Int>) -> Unit
+) {
+    var text by remember { mutableStateOf(byeRounds.joinToString(", ")) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Requested Byes") },
+        text = {
+            Column {
+                Text("Enter round numbers separated by commas (e.g. 1, 3, 5)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = { Text("e.g. 2, 4") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val parsed = text.split(",")
+                    .mapNotNull { it.trim().toIntOrNull() }
+                    .filter { it > 0 }
+                    .distinct()
+                    .sorted()
+                onSave(parsed)
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable
@@ -303,9 +384,7 @@ fun AddPlayerDialog(
     var club by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-    }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -313,23 +392,15 @@ fun AddPlayerDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    modifier = Modifier.focusRequester(focusRequester),
-                    keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.Words,
-                        imeAction = ImeAction.Done
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onDone = {
-                            if (name.isNotBlank()) {
-                                onAdd(name.trim(), rating.toIntOrNull(), title.ifBlank { null }, club.ifBlank { null })
-                                onDismiss()
-                            }
+                    value = name, onValueChange = { name = it }, label = { Text("Name") },
+                    singleLine = true, modifier = Modifier.focusRequester(focusRequester),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        if (name.isNotBlank()) {
+                            onAdd(name.trim(), rating.toIntOrNull(), title.ifBlank { null }, club.ifBlank { null })
+                            name = ""; focusRequester.requestFocus()
                         }
-                    )
+                    })
                 )
                 OutlinedTextField(value = rating, onValueChange = { rating = it }, label = { Text("Rating (optional)") }, singleLine = true)
                 OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title (optional, e.g. GM, IM)") }, singleLine = true)
@@ -341,23 +412,18 @@ fun AddPlayerDialog(
                 onClick = {
                     if (name.isNotBlank()) {
                         onAdd(name.trim(), rating.toIntOrNull(), title.ifBlank { null }, club.ifBlank { null })
-                        onDismiss()
+                        name = ""; focusRequester.requestFocus()
                     }
                 },
                 enabled = name.isNotBlank()
-            ) { Text("Add") }
+            ) { Text("Add & Next") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Done") } }
     )
 }
 
 @Composable
-fun BulkImportDialog(
-    onDismiss: () -> Unit,
-    onImport: (String) -> Unit
-) {
+fun BulkImportDialog(onDismiss: () -> Unit, onImport: (String) -> Unit) {
     var csv by remember { mutableStateOf("") }
 
     AlertDialog(
@@ -369,22 +435,13 @@ fun BulkImportDialog(
                 Text("One player per line", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
-                    value = csv,
-                    onValueChange = { csv = it },
+                    value = csv, onValueChange = { csv = it },
                     placeholder = { Text("Magnus Carlsen,2830,GM,Norway\nHikaru Nakamura,2790,GM,USA") },
-                    modifier = Modifier.height(200.dp),
-                    maxLines = 10
+                    modifier = Modifier.height(200.dp), maxLines = 10
                 )
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = { onImport(csv) },
-                enabled = csv.isNotBlank()
-            ) { Text("Import") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
+        confirmButton = { TextButton(onClick = { onImport(csv) }, enabled = csv.isNotBlank()) { Text("Import") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
