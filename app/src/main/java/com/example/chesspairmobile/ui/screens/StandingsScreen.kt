@@ -1,8 +1,10 @@
 package com.example.chesspairmobile.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -133,15 +135,18 @@ fun StandingsScreen(
             ) {
                 Column {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.Center
                     ) {
                         for (r in 1..tournament.currentRound) {
                             FilterChip(
                                 selected = selectedRound == r,
                                 onClick = { selectedRound = r },
-                                label = { Text("Round $r") },
-                                modifier = Modifier.padding(horizontal = 4.dp)
+                                label = { Text("$r") },
+                                modifier = Modifier.padding(horizontal = 2.dp)
                             )
                         }
                     }
