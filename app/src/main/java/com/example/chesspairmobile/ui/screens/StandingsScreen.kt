@@ -102,7 +102,10 @@ fun StandingsScreen(
         }
     }
 
-    var selectedRound by remember { mutableStateOf(tournament.currentRound) }
+    var selectedRound by remember { mutableIntStateOf(tournament.currentRound) }
+    LaunchedEffect(tournament.currentRound) {
+        selectedRound = tournament.currentRound
+    }
 
     val standings = remember(modelPlayers, modelMatches, tournament, tiebreakOrder, selectedRound) {
         calculateStandings(

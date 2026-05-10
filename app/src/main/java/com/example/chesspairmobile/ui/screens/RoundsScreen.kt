@@ -47,8 +47,10 @@ fun RoundsScreen(
     }
 
     var selectedRound by remember { mutableIntStateOf(tournament.currentRound.coerceAtLeast(1)) }
+    var editingPastRound by remember { mutableStateOf(false) }
     LaunchedEffect(tournament.currentRound) {
         selectedRound = tournament.currentRound.coerceAtLeast(1)
+        editingPastRound = false
     }
 
     var showSwapMode by remember { mutableStateOf(false) }
@@ -56,7 +58,6 @@ fun RoundsScreen(
     var swapColor1 by remember { mutableStateOf<Boolean?>(null) }
     var showCompleteConfirm by remember { mutableStateOf(false) }
     var showRollbackConfirm by remember { mutableStateOf(false) }
-    var editingPastRound by remember { mutableStateOf(false) }
 
     val isSetup = tournament.status == "SETUP"
     val isActive = tournament.status == "ACTIVE"
@@ -278,7 +279,7 @@ fun RoundsScreen(
                                     swapColor1 = null
                                 }
                             },
-                            showResults = selectedRound <= currentRound,
+                            showResults = selectedRound == currentRound || editingPastRound,
                             enableForfeitScoring = enableForfeitScoring
                         )
                     }
