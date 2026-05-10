@@ -9,3 +9,5 @@
 .cxx
 local.properties
 release.keystore
+.kotlin/
+gradle/gradle-daemon-jvm.properties
