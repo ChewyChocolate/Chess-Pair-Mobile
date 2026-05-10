@@ -39,6 +39,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     val matches: StateFlow<List<MatchEntity>> = _matches.asStateFlow()
 
     private var loadJob: kotlinx.coroutines.Job? = null
+    private var pairingJob: kotlinx.coroutines.Job? = null
 
     init {
         viewModelScope.launch {
@@ -368,7 +369,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         val tid = t.id
         val matchEntities = newMatches.map { matchToEntity(it, tid) }
 
-        viewModelScope.launch {
+        pairingJob?.cancel()
+        pairingJob = viewModelScope.launch {
             dao.deleteMatchesByRound(tid, round)
             dao.insertMatches(matchEntities)
             _matches.value = dao.getMatchesByTournament(tid)

@@ -372,7 +372,10 @@ fun generateSwiss(
         }
 
         if (isLastScoreGroup && currentToPair.size > 1) {
+            val maxAttempts = currentToPair.size
+            var attempts = 0
             while (currentToPair.size > 1) {
+                if (attempts >= maxAttempts) break
                 val p1 = currentToPair[0]
                 var p2Index = -1
                 for (j in 1 until currentToPair.size) {
@@ -382,10 +385,11 @@ fun generateSwiss(
                     }
                 }
                 if (p2Index < 0) {
-                    // No unplayed opponent — move p1 to end and try next
                     currentToPair.add(currentToPair.removeAt(0))
+                    attempts++
                     continue
                 }
+                attempts = 0
                 val p2 = currentToPair[p2Index]
 
                 val p1SeqW = checkColorSequence(data.colorSequence[p1.id] ?: emptyList(), 'W')

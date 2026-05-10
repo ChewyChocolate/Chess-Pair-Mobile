@@ -153,17 +153,21 @@ fun generateFideDutch(
 
         // If last bracket and leftover has > 1 player, pair greedily
         if (isLastBracket && leftover.size > 1) {
+            val maxAttempts = leftover.size
+            var attempts = 0
             while (leftover.size > 1) {
+                if (attempts >= maxAttempts) break
                 val p1 = leftover[0]
                 var p2Idx = -1
                 for (j in 1 until leftover.size) {
                     if (data.played[p1.id]?.contains(leftover[j].id) != true) { p2Idx = j; break }
                 }
                 if (p2Idx < 0) {
-                    // No unplayed opponent available — move p1 to end and try next
                     leftover.add(leftover.removeAt(0))
+                    attempts++
                     continue
                 }
+                attempts = 0
                 val p2 = leftover[p2Idx]
                 val colors = assignColors(p1, p2, data)
                 val (wid, bid) = if (colors.first == 'W') p1.id to p2.id else p2.id to p1.id
