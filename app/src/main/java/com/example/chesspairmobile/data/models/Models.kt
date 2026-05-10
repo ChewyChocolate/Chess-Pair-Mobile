@@ -88,7 +88,8 @@ data class Tournament(
         TiebreakType.RATING
     ),
     val accelerationMode: AccelerationMode = AccelerationMode.NONE,
-    val liveBroadcastUrl: String? = null
+    val liveBroadcastUrl: String? = null,
+    val swissExtraRound: Boolean = true
 )
 
 fun defaultTiebreakOrderForType(type: TournamentType): List<TiebreakType> = when (type) {

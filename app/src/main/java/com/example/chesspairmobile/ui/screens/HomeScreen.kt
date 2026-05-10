@@ -27,7 +27,7 @@ fun HomeScreen(
     tournaments: List<TournamentEntity>,
     activeId: String?,
     onSelectTournament: (String) -> Unit,
-    onCreateTournament: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode) -> Unit,
+    onCreateTournament: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode, Boolean) -> Unit,
     onDeleteTournament: (String) -> Unit,
     defaultPoints: Triple<Double, Double, Double> = Triple(1.0, 0.5, 0.0),
     defaultAvoidClubs: Boolean = false,
@@ -110,8 +110,8 @@ fun HomeScreen(
     if (showCreateDialog) {
         CreateTournamentDialog(
             onDismiss = { showCreateDialog = false },
-            onCreate = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode ->
-                onCreateTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode)
+            onCreate = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode, swissExtra ->
+                onCreateTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode, swissExtra)
                 showCreateDialog = false
             },
             defaultPoints = defaultPoints,
@@ -202,7 +202,7 @@ fun TournamentTypeChip(type: String) {
 @Composable
 fun CreateTournamentDialog(
     onDismiss: () -> Unit,
-    onCreate: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode) -> Unit,
+    onCreate: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode, Boolean) -> Unit,
     defaultPoints: Triple<Double, Double, Double> = Triple(1.0, 0.5, 0.0),
     defaultAvoidClubs: Boolean = false,
     defaultAcceleration: AccelerationMode = AccelerationMode.NONE,
@@ -215,13 +215,14 @@ fun CreateTournamentDialog(
     var section by remember { mutableStateOf("") }
     var type by remember { mutableStateOf(TournamentType.SWISS) }
     var isTeam by remember { mutableStateOf(false) }
-    var rounds by remember { mutableStateOf("5") }
+    var rounds by remember { mutableStateOf("") }
     var timeControl by remember { mutableStateOf("") }
     var winPts by remember { mutableStateOf(defaultPoints.first.toString()) }
     var drawPts by remember { mutableStateOf(defaultPoints.second.toString()) }
     var lossPts by remember { mutableStateOf(defaultPoints.third.toString()) }
     var avoidClubs by remember { mutableStateOf(defaultAvoidClubs) }
-    var autoCalc by remember { mutableStateOf(false) }
+    var autoCalc by remember { mutableStateOf(true) }
+    var swissExtraRound by remember { mutableStateOf(true) }
     var accelMode by remember { mutableStateOf(defaultAcceleration) }
     var tiebreakOrder by remember { mutableStateOf(defaultTiebreakOrder) }
     var expandedType by remember { mutableStateOf(false) }
@@ -268,12 +269,18 @@ fun CreateTournamentDialog(
                     Text("Team Tournament")
                 }
 
-                OutlinedTextField(value = rounds, onValueChange = { rounds = it }, label = { Text("Number of Rounds") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = rounds, onValueChange = { rounds = it }, label = { Text("Number of Rounds") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !autoCalc)
 
                 if (type == TournamentType.SWISS) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = autoCalc, onCheckedChange = { autoCalc = it })
                         Text("Auto-calculate rounds")
+                    }
+                    if (autoCalc) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = swissExtraRound, onCheckedChange = { swissExtraRound = it })
+                            Text("Add one extra round")
+                        }
                     }
                 }
 
@@ -312,15 +319,16 @@ fun CreateTournamentDialog(
                     if (name.isNotBlank()) {
                         onCreate(
                             name, type, isTeam,
-                            (rounds.toIntOrNull() ?: 5).coerceAtLeast(1), timeControl.ifBlank { null },
+                            (if (autoCalc) 0 else (rounds.toIntOrNull() ?: 5).coerceAtLeast(1)), timeControl.ifBlank { null },
                             Triple(winPts.toDoubleOrNull() ?: 1.0, drawPts.toDoubleOrNull() ?: 0.5, lossPts.toDoubleOrNull() ?: 0.0),
                             avoidClubs, autoCalc, false, section.ifBlank { null },
                             tiebreakOrder,
-                            accelMode
+                            accelMode,
+                            swissExtraRound
                         )
                     }
                 },
-                enabled = name.isNotBlank()
+                enabled = name.isNotBlank() && (autoCalc || rounds.isNotBlank())
             ) { Text("Create") }
         },
         dismissButton = {

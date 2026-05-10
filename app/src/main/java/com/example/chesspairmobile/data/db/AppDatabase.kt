@@ -130,7 +130,8 @@ data class TournamentEntity(
     val tiebreakOrder: String,
     val accelerationMode: String = "NONE",
     val liveBroadcastUrl: String? = null,
-    val forcedPairings: String = "[]"
+    val forcedPairings: String = "[]",
+    val swissExtraRound: Boolean = true
 )
 
 @Dao
@@ -219,7 +220,7 @@ interface TournamentDao {
 
 @Database(
     entities = [TournamentEntity::class, PlayerEntity::class, TeamEntity::class, MatchEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

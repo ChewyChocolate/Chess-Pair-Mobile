@@ -161,8 +161,8 @@ fun ChessPairApp(preferences: AppPreferences = AppPreferences(androidx.compose.u
                             restoreState = true
                         }
                     },
-                    onCreateTournament = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode ->
-                        viewModel.createTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode)
+                    onCreateTournament = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode, swissExtra ->
+                        viewModel.createTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode, swissExtra)
                         navController.navigate("dashboard") {
                             popUpTo("home") { saveState = true }
                             launchSingleTop = true

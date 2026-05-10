@@ -92,7 +92,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         manualOverride: Boolean = false,
         section: String? = null,
         tiebreakOrder: List<TiebreakType> = defaultTiebreakOrderForType(type),
-        accelerationMode: AccelerationMode = AccelerationMode.NONE
+        accelerationMode: AccelerationMode = AccelerationMode.NONE,
+        swissExtraRound: Boolean = true
     ) {
         val rounds = totalRounds.coerceAtLeast(1)
         val t = TournamentEntity(
@@ -112,7 +113,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
             pointsForLoss = points.third,
             avoidClubPairings = avoidClubs,
             tiebreakOrder = converters.fromTiebreakList(tiebreakOrder),
-            accelerationMode = accelerationMode.name
+            accelerationMode = accelerationMode.name,
+            swissExtraRound = swissExtraRound
         )
         viewModelScope.launch {
             dao.insertTournament(t)
@@ -314,7 +316,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
                     totalRounds = if (count % 2 == 0) count - 1 else count
                 }
                 TournamentType.SWISS -> if (t.autoCalculateRounds) {
-                    totalRounds = maxOf(1, ceil(log2(count.toDouble())).toInt() + 1)
+                    val base = maxOf(1, ceil(log2(count.toDouble())).toInt())
+                    totalRounds = if (t.swissExtraRound) base + 1 else base
                 }
             }
         }
