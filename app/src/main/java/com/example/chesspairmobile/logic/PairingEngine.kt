@@ -374,12 +374,17 @@ fun generateSwiss(
         if (isLastScoreGroup && currentToPair.size > 1) {
             while (currentToPair.size > 1) {
                 val p1 = currentToPair[0]
-                var p2Index = 1
+                var p2Index = -1
                 for (j in 1 until currentToPair.size) {
                     if (data.played[p1.id]?.contains(currentToPair[j].id) != true) {
                         p2Index = j
                         break
                     }
+                }
+                if (p2Index < 0) {
+                    // No unplayed opponent — move p1 to end and try next
+                    currentToPair.add(currentToPair.removeAt(0))
+                    continue
                 }
                 val p2 = currentToPair[p2Index]
 

@@ -155,9 +155,14 @@ fun generateFideDutch(
         if (isLastBracket && leftover.size > 1) {
             while (leftover.size > 1) {
                 val p1 = leftover[0]
-                var p2Idx = 1
+                var p2Idx = -1
                 for (j in 1 until leftover.size) {
                     if (data.played[p1.id]?.contains(leftover[j].id) != true) { p2Idx = j; break }
+                }
+                if (p2Idx < 0) {
+                    // No unplayed opponent available — move p1 to end and try next
+                    leftover.add(leftover.removeAt(0))
+                    continue
                 }
                 val p2 = leftover[p2Idx]
                 val colors = assignColors(p1, p2, data)
