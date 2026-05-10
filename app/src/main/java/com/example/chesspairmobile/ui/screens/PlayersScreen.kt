@@ -258,6 +258,7 @@ fun PlayerCard(
     onUpdatePlayer: (PlayerEntity) -> Unit = {}
 ) {
     var showByeDialog by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
     val gson = remember { Gson() }
 
     val byeRounds: List<Int> = remember(player.requestedByes) {
@@ -313,6 +314,10 @@ fun PlayerCard(
 
             // Action buttons
             if (isSetup) {
+                IconButton(onClick = { showEditDialog = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.Edit, "Edit player", Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+                }
                 IconButton(onClick = { showByeDialog = true }, modifier = Modifier.size(40.dp)) {
                     Icon(Icons.Default.EventBusy, "Edit byes", Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
@@ -345,6 +350,60 @@ fun PlayerCard(
             }
         )
     }
+
+    if (showEditDialog) {
+        EditPlayerDialog(
+            player = player,
+            onDismiss = { showEditDialog = false },
+            onSave = { updated ->
+                onUpdatePlayer(updated)
+                showEditDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun EditPlayerDialog(
+    player: PlayerEntity,
+    onDismiss: () -> Unit,
+    onSave: (PlayerEntity) -> Unit
+) {
+    var name by remember { mutableStateOf(player.name) }
+    var rating by remember { mutableStateOf(player.rating?.toString() ?: "") }
+    var title by remember { mutableStateOf(player.title ?: "") }
+    var club by remember { mutableStateOf(player.club ?: "") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Player") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true)
+                OutlinedTextField(value = rating, onValueChange = { rating = it }, label = { Text("Rating (optional)") }, singleLine = true)
+                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title (optional, e.g. GM, IM)") }, singleLine = true)
+                OutlinedTextField(value = club, onValueChange = { club = it }, label = { Text("Club (optional)") }, singleLine = true)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (name.isNotBlank()) {
+                        onSave(player.copy(
+                            name = name.trim(),
+                            rating = rating.toIntOrNull(),
+                            title = title.ifBlank { null },
+                            club = club.ifBlank { null }
+                        ))
+                    }
+                },
+                enabled = name.isNotBlank()
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
