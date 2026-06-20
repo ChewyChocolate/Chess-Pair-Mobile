@@ -148,6 +148,9 @@ interface TournamentDao {
     @Query("SELECT * FROM tournaments")
     suspend fun getAllTournaments(): List<TournamentEntity>
 
+    @Query("SELECT * FROM tournaments")
+    fun observeAllTournaments(): kotlinx.coroutines.flow.Flow<List<TournamentEntity>>
+
     @Query("SELECT * FROM tournaments WHERE id = :id")
     suspend fun getTournament(id: String): TournamentEntity?
 
@@ -173,6 +176,9 @@ interface TournamentDao {
     @Query("SELECT * FROM players WHERE tournamentId = :tournamentId")
     suspend fun getPlayersByTournament(tournamentId: String): List<PlayerEntity>
 
+    @Query("SELECT * FROM players WHERE tournamentId = :tournamentId")
+    fun observePlayersByTournament(tournamentId: String): kotlinx.coroutines.flow.Flow<List<PlayerEntity>>
+
     // Teams
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTeam(team: TeamEntity)
@@ -188,6 +194,9 @@ interface TournamentDao {
 
     @Query("SELECT * FROM teams WHERE tournamentId = :tournamentId")
     suspend fun getTeamsByTournament(tournamentId: String): List<TeamEntity>
+
+    @Query("SELECT * FROM teams WHERE tournamentId = :tournamentId")
+    fun observeTeamsByTournament(tournamentId: String): kotlinx.coroutines.flow.Flow<List<TeamEntity>>
 
     // Matches
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -211,6 +220,9 @@ interface TournamentDao {
     @Query("SELECT * FROM matches WHERE tournamentId = :tournamentId")
     suspend fun getMatchesByTournament(tournamentId: String): List<MatchEntity>
 
+    @Query("SELECT * FROM matches WHERE tournamentId = :tournamentId")
+    fun observeMatchesByTournament(tournamentId: String): kotlinx.coroutines.flow.Flow<List<MatchEntity>>
+
     @Query("SELECT * FROM matches WHERE tournamentId = :tournamentId AND round = :round")
     suspend fun getMatchesByRound(tournamentId: String, round: Int): List<MatchEntity>
 
@@ -231,13 +243,33 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        // Migration v2 -> v3 added liveBroadcastUrl, forcedPairings,
+        // swissExtraRound, and accelerationMode to the tournaments table.
+        // The columns are nullable or have defaults so we can safely ALTER
+        // TABLE without losing existing rows.
+        private val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tournaments ADD COLUMN liveBroadcastUrl TEXT")
+                db.execSQL("ALTER TABLE tournaments ADD COLUMN forcedPairings TEXT NOT NULL DEFAULT '[]'")
+                db.execSQL("ALTER TABLE tournaments ADD COLUMN swissExtraRound INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE tournaments ADD COLUMN accelerationMode TEXT NOT NULL DEFAULT 'NONE'")
+            }
+        }
+
         fun getInstance(context: android.content.Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "chesspair-db"
-                ).fallbackToDestructiveMigration(true).build().also { INSTANCE = it }
+                )
+                    .addMigrations(MIGRATION_2_3)
+                    // Last-resort safety net: if a user is on a version older
+                    // than our known migrations, fall back to recreating the
+                    // schema. Once we ship a 1->2 migration this can be removed.
+                    .fallbackToDestructiveMigration(true)
+                    .build()
+                    .also { INSTANCE = it }
             }
         }
     }

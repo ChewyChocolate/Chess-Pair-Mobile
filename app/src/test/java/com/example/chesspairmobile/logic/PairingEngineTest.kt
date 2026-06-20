@@ -186,4 +186,86 @@ class PairingEngineTest {
         // All original players must still be present
         assertEquals(players.map { it.id }.toSet(), out.map { it.id }.toSet())
     }
+
+    @Test
+    fun `generateKnockout round 2 advances winners of round 1`() {
+        val players = (1..4).map { player("p$it") }
+        val r1 = generateKnockout(players, emptyList(), round = 1)
+        // Mark round 1 winners
+        val completedR1 = r1.map { m ->
+            if (m.blackId != null) m.copy(result = MatchResult.WHITE_WIN) else m
+        }
+        val r2 = generateKnockout(players, completedR1, round = 2)
+        // 4 players → 2 winners → 1 final match
+        assertEquals(1, r2.size)
+        assertNotNull(r2.first().whiteId)
+        assertNotNull(r2.first().blackId)
+    }
+
+    @Test
+    fun `generateKnockout rejects n=1 in round 1`() {
+        val players = listOf(player("p1"))
+        val matches = generateKnockout(players, emptyList(), round = 1)
+        assertTrue("Single player should produce no matches", matches.isEmpty())
+    }
+
+    @Test
+    fun `generateKnockout with 2 players in round 1 produces one match`() {
+        val players = (1..2).map { player("p$it") }
+        val matches = generateKnockout(players, emptyList(), round = 1)
+        assertEquals(1, matches.size)
+        // Order depends on shuffle; just check both are present
+        val pair = setOf(matches[0].whiteId, matches[0].blackId)
+        assertEquals(setOf("p1", "p2"), pair)
+    }
+
+    @Test
+    fun `generateRoundRobin with avoidClubPairings issues a bye when same-club pair is forced`() {
+        // With 4 players (p1=A, p2=A, p3=B, p4=C), the standard rotation forces
+        // p1 and p2 to play each other in round 3. With avoidClubPairings, that
+        // round should produce a bye instead.
+        val players = listOf(
+            player("p1").copy(club = "A"),
+            player("p2").copy(club = "A"),
+            player("p3").copy(club = "B"),
+            player("p4").copy(club = "C")
+        )
+        val allRounds = (1..3).flatMap { generateRoundRobin(players, round = it, avoidClubPairings = true) }
+        val realMatches = allRounds.filter { it.blackId != null }
+        // No real match should pair two same-club players
+        realMatches.forEach { m ->
+            val w = players.first { it.id == m.whiteId }
+            val b = players.first { it.id == m.blackId }
+            assertFalse("Same-club pair: $w vs $b", w.club == b.club)
+        }
+        // A bye must have been issued in at least one round
+        assertTrue(allRounds.any { it.result == MatchResult.BYE })
+    }
+
+    @Test
+    fun `generateRoundRobin without avoidClubPairings has no club restriction`() {
+        val players = listOf(
+            player("p1").copy(club = "A"),
+            player("p2").copy(club = "A")
+        )
+        val matches = generateRoundRobin(players, round = 1, avoidClubPairings = false)
+        assertEquals(1, matches.size)
+        assertEquals("p1", matches[0].whiteId)
+        assertEquals("p2", matches[0].blackId)
+    }
+
+    @Test
+    fun `generateRoundRobin with empty player list returns empty`() {
+        val matches = generateRoundRobin(emptyList(), round = 1)
+        assertTrue(matches.isEmpty())
+    }
+
+    @Test
+    fun `generateFideDutch BAKU acceleration does not lose players`() {
+        val players = (1..8).map { player("p$it", rating = 1500 + it * 100) }
+        val matches = generateFideDutch(players, emptyList(), 1, 5, 1.0, 0.5, 0.0,
+            false, emptyList(), AccelerationMode.BAKU)
+        val allPlayers = matches.flatMap { listOfNotNull(it.whiteId, it.blackId) }.toSet()
+        assertEquals(8, allPlayers.size)
+    }
 }

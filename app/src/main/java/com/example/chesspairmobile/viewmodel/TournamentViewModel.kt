@@ -38,28 +38,61 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     private val _matches = MutableStateFlow<List<MatchEntity>>(emptyList())
     val matches: StateFlow<List<MatchEntity>> = _matches.asStateFlow()
 
+    // Cached model-layer lists derived from the entity flows. Updated whenever
+    // the corresponding entity StateFlow changes. Screens that need typed models
+    // call the get* helpers which read from these caches in O(1).
+    private val _modelPlayers = MutableStateFlow<List<Player>>(emptyList())
+    private val _modelTeams = MutableStateFlow<List<Team>>(emptyList())
+    private val _modelMatches = MutableStateFlow<List<Match>>(emptyList())
+
     private var loadJob: kotlinx.coroutines.Job? = null
     private var pairingJob: kotlinx.coroutines.Job? = null
+    private var playersJob: kotlinx.coroutines.Job? = null
+    private var teamsJob: kotlinx.coroutines.Job? = null
+    private var matchesJob: kotlinx.coroutines.Job? = null
 
     init {
+        // Observe all tournaments reactively so the home screen updates when
+        // tournaments are created, renamed, or deleted from any path.
         viewModelScope.launch {
-            _tournaments.value = dao.getAllTournaments()
+            dao.observeAllTournaments().collect { _tournaments.value = it }
         }
     }
 
     fun setActiveTournament(id: String?) {
         loadJob?.cancel()
+        playersJob?.cancel()
+        teamsJob?.cancel()
+        matchesJob?.cancel()
         _activeTournamentId.value = id
         if (id != null) {
-            loadJob = viewModelScope.launch {
-                _players.value = dao.getPlayersByTournament(id)
-                _teams.value = dao.getTeamsByTournament(id)
-                _matches.value = dao.getMatchesByTournament(id)
+            // Subscribe to per-tournament flows; cancellation in setActiveTournament
+            // ensures we don't leak collectors across tournament switches.
+            playersJob = viewModelScope.launch {
+                dao.observePlayersByTournament(id).collect {
+                    _players.value = it
+                    _modelPlayers.value = it.map(::entityToPlayer)
+                }
+            }
+            teamsJob = viewModelScope.launch {
+                dao.observeTeamsByTournament(id).collect {
+                    _teams.value = it
+                    _modelTeams.value = it.map(::entityToTeam)
+                }
+            }
+            matchesJob = viewModelScope.launch {
+                dao.observeMatchesByTournament(id).collect {
+                    _matches.value = it
+                    _modelMatches.value = it.map(::entityToMatch)
+                }
             }
         } else {
             _players.value = emptyList()
             _teams.value = emptyList()
             _matches.value = emptyList()
+            _modelPlayers.value = emptyList()
+            _modelTeams.value = emptyList()
+            _modelMatches.value = emptyList()
         }
     }
 
@@ -118,7 +151,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         )
         viewModelScope.launch {
             dao.insertTournament(t)
-            _tournaments.value = dao.getAllTournaments()
             _activeTournamentId.value = t.id
             _players.value = emptyList()
             _teams.value = emptyList()
@@ -129,7 +161,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     fun updateTournament(updates: TournamentEntity) {
         viewModelScope.launch {
             dao.updateTournament(updates)
-            _tournaments.value = dao.getAllTournaments()
         }
     }
 
@@ -139,7 +170,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
             dao.deleteTeamsByTournament(id)
             dao.deleteMatchesByTournament(id)
             dao.deleteTournamentById(id)
-            _tournaments.value = dao.getAllTournaments()
             if (_activeTournamentId.value == id) {
                 _activeTournamentId.value = null
                 _players.value = emptyList()
@@ -149,17 +179,11 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun getTournamentPlayers(): List<Player> {
-        return _players.value.map { entityToPlayer(it) }
-    }
+    fun getTournamentPlayers(): List<Player> = _modelPlayers.value
 
-    fun getTournamentTeams(): List<Team> {
-        return _teams.value.map { entityToTeam(it) }
-    }
+    fun getTournamentTeams(): List<Team> = _modelTeams.value
 
-    fun getTournamentMatches(): List<Match> {
-        return _matches.value.map { entityToMatch(it) }
-    }
+    fun getTournamentMatches(): List<Match> = _modelMatches.value
 
     // ---- Player management (SETUP only) ----
 
@@ -180,7 +204,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         )
         viewModelScope.launch {
             dao.insertPlayer(p)
-            _players.value = dao.getPlayersByTournament(tid)
         }
     }
 
@@ -207,7 +230,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         if (newPlayers.isNotEmpty()) {
             viewModelScope.launch {
                 dao.insertPlayers(newPlayers)
-                _players.value = dao.getPlayersByTournament(tid)
             }
         }
     }
@@ -216,7 +238,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         val tid = _activeTournamentId.value ?: return
         viewModelScope.launch {
             dao.updatePlayer(player)
-            _players.value = dao.getPlayersByTournament(tid)
         }
     }
 
@@ -226,8 +247,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             dao.deletePlayer(id)
             dao.deleteMatchesByPlayer(tid, id)
-            _players.value = dao.getPlayersByTournament(tid)
-            _matches.value = dao.getMatchesByTournament(tid)
         }
     }
 
@@ -252,10 +271,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         updatePlayer(player.copy(withdrawn = false))
     }
 
-    fun forfeitPlayer(id: String) {
-        withdrawPlayer(id)
-    }
-
     // ---- Team management ----
 
     fun addTeam(name: String) {
@@ -269,7 +284,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         )
         viewModelScope.launch {
             dao.insertTeam(team)
-            _teams.value = dao.getTeamsByTournament(tid)
         }
     }
 
@@ -289,7 +303,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         val tid = _activeTournamentId.value ?: return
         viewModelScope.launch {
             dao.updateTeam(team)
-            _teams.value = dao.getTeamsByTournament(tid)
         }
     }
 
@@ -329,7 +342,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         )
         viewModelScope.launch {
             dao.updateTournament(updated)
-            _tournaments.value = dao.getAllTournaments()
         }
     }
 
@@ -351,7 +363,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
             }
             else -> {
                 when (tournamentType) {
-                    TournamentType.ROUND_ROBIN -> generateRoundRobin(players, round)
+                    TournamentType.ROUND_ROBIN -> generateRoundRobin(players, round, t.avoidClubPairings)
                     TournamentType.KNOCKOUT -> generateKnockout(players, matches, round)
                     TournamentType.SWISS -> generateFideDutch(
                         players = players,
@@ -376,7 +388,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         pairingJob = viewModelScope.launch {
             dao.deleteMatchesByRound(tid, round)
             dao.insertMatches(matchEntities)
-            _matches.value = dao.getMatchesByTournament(tid)
         }
     }
 
@@ -386,6 +397,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun updateMatchPgn(matchId: String, pgn: String?) {
+        if (!requireStatus(TournamentStatus.ACTIVE, TournamentStatus.COMPLETED)) return
         val match = _matches.value.find { it.id == matchId } ?: return
         updateMatch(match.copy(pgn = pgn))
     }
@@ -394,7 +406,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         val tid = _activeTournamentId.value ?: return
         viewModelScope.launch {
             dao.updateMatch(match)
-            _matches.value = dao.getMatchesByTournament(tid)
         }
     }
 
@@ -422,7 +433,6 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
                 _matches.value.filter { it.round == t.currentRound }.forEach { m ->
                     dao.updateMatch(m.copy(result = null))
                 }
-                _matches.value = dao.getMatchesByTournament(t.id)
             }
             updateTournament(t.copy(status = TournamentStatus.ACTIVE.name))
         } else {
@@ -430,9 +440,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
             val newStatus = if (newRound == 0) TournamentStatus.SETUP.name else TournamentStatus.ACTIVE.name
             viewModelScope.launch {
                 dao.deleteMatchesByRound(t.id, t.currentRound)
-                _matches.value = dao.getMatchesByTournament(t.id)
                 dao.updateTournament(t.copy(status = newStatus, currentRound = newRound))
-                _tournaments.value = dao.getAllTournaments()
             }
         }
     }
@@ -453,11 +461,11 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             dao.updateMatch(newM1)
             dao.updateMatch(newM2)
-            _matches.value = dao.getMatchesByTournament(tid)
         }
     }
 
     fun addManualMatch(round: Int, whiteId: String?, blackId: String?) {
+        if (!requireStatus(TournamentStatus.ACTIVE, TournamentStatus.COMPLETED)) return
         val tid = _activeTournamentId.value ?: return
         val boardNum = (_matches.value.filter { it.round == round }.maxOfOrNull { it.boardNumber ?: 0 } ?: 0) + 1
         val match = MatchEntity(
@@ -474,15 +482,14 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         )
         viewModelScope.launch {
             dao.insertMatch(match)
-            _matches.value = dao.getMatchesByTournament(tid)
         }
     }
 
     fun removeManualMatch(matchId: String) {
+        if (!requireStatus(TournamentStatus.ACTIVE, TournamentStatus.COMPLETED)) return
         val tid = _activeTournamentId.value ?: return
         viewModelScope.launch {
             dao.deleteMatch(matchId)
-            _matches.value = dao.getMatchesByTournament(tid)
         }
     }
 
@@ -518,19 +525,21 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     // ---- Live broadcast ----
     fun broadcastResults(onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         val t = getActiveTournament() ?: return
-        val url = t.liveBroadcastUrl ?: return
+        val url = t.liveBroadcastUrl?.takeIf { it.isNotBlank() } ?: run {
+            onResult(false, "No broadcast URL configured")
+            return
+        }
         val standings = calculateStandings(
             getTournamentPlayers(), getTournamentMatches(),
             t.pointsForWin, t.pointsForDraw, t.pointsForLoss,
             converters.toTiebreakList(t.tiebreakOrder)
         )
         viewModelScope.launch {
-            try {
-                val json = buildBroadcastJson(t, standings)
-                withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val json = buildBroadcastJson(t, standings)
                     val broadcastUrl = java.net.URI(url).toURL()
-                    val client = broadcastUrl.openConnection() as HttpURLConnection
-                    client.apply {
+                    val client = (broadcastUrl.openConnection() as HttpURLConnection).apply {
                         requestMethod = "POST"
                         setRequestProperty("Content-Type", "application/json")
                         doOutput = true
@@ -539,14 +548,18 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
                     }
                     client.outputStream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
                     val code = client.responseCode
-                    client.disconnect()
-                    withContext(Dispatchers.Main) {
-                        onResult(code in 200..299, if (code in 200..299) "Results broadcast OK" else "Server returned $code")
-                    }
+                    // Drain the response stream so the connection can be reused
+                    (if (code in 200..299) client.inputStream else client.errorStream)?.use { it.copyTo(java.io.ByteArrayOutputStream()) }
+                    code
                 }
-            } catch (e: Exception) {
-                onResult(false, "Broadcast failed: ${e.message}")
             }
+            result.fold(
+                onSuccess = { code ->
+                    val ok = code in 200..299
+                    onResult(ok, if (ok) "Results broadcast OK" else "Server returned $code")
+                },
+                onFailure = { e -> onResult(false, "Broadcast failed: ${e.message ?: e.javaClass.simpleName}") }
+            )
         }
     }
 

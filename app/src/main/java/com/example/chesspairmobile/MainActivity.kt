@@ -10,6 +10,8 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -230,6 +232,8 @@ fun ChessPairApp(
             }
 
             composable("rounds") {
+                val snackbarHostState = remember { SnackbarHostState() }
+                val scope = rememberCoroutineScope()
                 RoundsScreen(
                     tournament = activeTournament,
                     players = players,
@@ -240,7 +244,14 @@ fun ChessPairApp(
                     onCompleteRound = { viewModel.completeRound() },
                     onRollbackRound = { viewModel.rollbackRound() },
                     onSwapPlayers = { m1, w1, m2, w2 -> viewModel.swapPlayers(m1, w1, m2, w2) },
-                    enableForfeitScoring = settings.enableForfeitScoring
+                    enableForfeitScoring = settings.enableForfeitScoring,
+                    onAddForcedPairing = { w, b -> viewModel.addForcedPairing(w, b) },
+                    onClearForcedPairings = { viewModel.clearForcedPairings() },
+                    onBroadcast = {
+                        viewModel.broadcastResults { ok, msg ->
+                            scope.launch { snackbarHostState.showSnackbar(msg) }
+                        }
+                    }
                 )
             }
 

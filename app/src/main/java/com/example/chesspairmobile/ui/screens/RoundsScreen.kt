@@ -39,7 +39,10 @@ fun RoundsScreen(
     onCompleteRound: () -> Unit,
     onRollbackRound: () -> Unit,
     onSwapPlayers: (String, Boolean, String, Boolean) -> Unit,
-    enableForfeitScoring: Boolean = true
+    enableForfeitScoring: Boolean = true,
+    onAddForcedPairing: (String, String) -> Unit = { _, _ -> },
+    onClearForcedPairings: () -> Unit = {},
+    onBroadcast: () -> Unit = {}
 ) {
     if (tournament == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -60,6 +63,7 @@ fun RoundsScreen(
     var swapColor1 by remember { mutableStateOf<Boolean?>(null) }
     var showCompleteConfirm by remember { mutableStateOf(false) }
     var showRollbackConfirm by remember { mutableStateOf(false) }
+    var showForcedPairingDialog by remember { mutableStateOf(false) }
 
     val isSetup = tournament.status == "SETUP"
     val isActive = tournament.status == "ACTIVE"
@@ -107,6 +111,30 @@ fun RoundsScreen(
                         ) {
                             @Suppress("DEPRECATION")
                             Icon(Icons.Filled.Undo, "Rollback")
+                        }
+                    }
+                    var showMenu by remember { mutableStateOf(false) }
+                    IconButton(
+                        onClick = { showMenu = true },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(Icons.Default.MoreVert, "More")
+                    }
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Forced pairings…") },
+                            onClick = { showMenu = false; showForcedPairingDialog = true }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Clear forced pairings") },
+                            enabled = !tournament.forcedPairings.isNullOrBlank() && tournament.forcedPairings != "[]",
+                            onClick = { showMenu = false; onClearForcedPairings() }
+                        )
+                        if (!tournament.liveBroadcastUrl.isNullOrBlank()) {
+                            DropdownMenuItem(
+                                text = { Text("Broadcast results") },
+                                onClick = { showMenu = false; onBroadcast() }
+                            )
                         }
                     }
                 }
@@ -354,6 +382,109 @@ fun RoundsScreen(
             }
         )
     }
+
+    if (showForcedPairingDialog) {
+        ForcedPairingDialog(
+            players = players,
+            existingPairings = parseForcedPairings(tournament.forcedPairings),
+            onDismiss = { showForcedPairingDialog = false },
+            onAdd = { white, black ->
+                onAddForcedPairing(white, black)
+                showForcedPairingDialog = false
+            }
+        )
+    }
+}
+
+private fun parseForcedPairings(json: String?): List<Pair<String, String>> {
+    if (json.isNullOrBlank() || json == "[]") return emptyList()
+    return try {
+        val gson = com.google.gson.Gson()
+        val type = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
+        val list: List<String> = gson.fromJson(json, type) ?: return emptyList()
+        list.mapNotNull { entry ->
+            val parts = entry.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
+        }
+    } catch (_: Exception) { emptyList() }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ForcedPairingDialog(
+    players: List<PlayerEntity>,
+    existingPairings: List<Pair<String, String>>,
+    onDismiss: () -> Unit,
+    onAdd: (String, String) -> Unit
+) {
+    var whiteId by remember { mutableStateOf<String?>(null) }
+    var blackId by remember { mutableStateOf<String?>(null) }
+    var whiteMenu by remember { mutableStateOf(false) }
+    var blackMenu by remember { mutableStateOf(false) }
+
+    val playerName: (String?) -> String = { id ->
+        players.firstOrNull { it.id == id }?.name ?: "Select…"
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Forced Pairing") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Force a specific pair for the next round. The other pairings are still generated normally.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (existingPairings.isNotEmpty()) {
+                    Text("Existing forced pairings: ${existingPairings.size}", style = MaterialTheme.typography.labelMedium)
+                }
+                ExposedDropdownMenuBox(expanded = whiteMenu, onExpandedChange = { whiteMenu = it }) {
+                    OutlinedTextField(
+                        value = playerName(whiteId),
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("White") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = whiteMenu) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    )
+                    ExposedDropdownMenu(expanded = whiteMenu, onDismissRequest = { whiteMenu = false }) {
+                        players.filter { it.active && !it.withdrawn }.forEach { p ->
+                            DropdownMenuItem(text = { Text(p.name) }, onClick = { whiteId = p.id; whiteMenu = false })
+                        }
+                    }
+                }
+                ExposedDropdownMenuBox(expanded = blackMenu, onExpandedChange = { blackMenu = it }) {
+                    OutlinedTextField(
+                        value = playerName(blackId),
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Black") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = blackMenu) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    )
+                    ExposedDropdownMenu(expanded = blackMenu, onDismissRequest = { blackMenu = false }) {
+                        players.filter { it.active && !it.withdrawn && it.id != whiteId }.forEach { p ->
+                            DropdownMenuItem(text = { Text(p.name) }, onClick = { blackId = p.id; blackMenu = false })
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val w = whiteId
+                    val b = blackId
+                    if (w != null && b != null && w != b) onAdd(w, b)
+                },
+                enabled = whiteId != null && blackId != null && whiteId != blackId
+            ) { Text("Add") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable

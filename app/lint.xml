@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- These checks generate noisy warnings on dependencies that the project
+         intentionally keeps at a stable version. Disable them to keep lint
+         output focused on actionable issues. -->
+    <issue id="GradleDependency" severity="ignore" />
+    <issue id="NewerVersionAvailable" severity="ignore" />
+    <issue id="AndroidGradlePluginVersion" severity="ignore" />
+    <issue id="UnusedResources" severity="informational" />
+</lint>

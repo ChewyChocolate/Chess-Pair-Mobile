@@ -42,6 +42,49 @@ fun calculateStandings(
         progressiveScores[p.id] = cumulative
     }
 
+    // Pre-compute per-player Sonneborn-Berger and most-wins in a single pass
+    // over matches: each match contributes to (at most) two players' SB and
+    // exactly two players' most-wins counters. This is O(n+m) instead of O(n*m).
+    val sbByPlayer = HashMap<String, Double>().apply {
+        players.forEach { put(it.id, 0.0) }
+    }
+    val mostWinsByPlayer = HashMap<String, Int>().apply {
+        players.forEach { put(it.id, 0) }
+    }
+    matchesToProcess.forEach { m ->
+        val result = m.result ?: return@forEach
+        val white = m.whiteId
+        val black = m.blackId
+        if (white != null && black != null) {
+            val whiteScore = data.scores[black] ?: 0.0
+            val blackScore = data.scores[white] ?: 0.0
+            when (result) {
+                MatchResult.WHITE_WIN -> {
+                    sbByPlayer[white] = (sbByPlayer[white] ?: 0.0) + whiteScore
+                    mostWinsByPlayer[white] = (mostWinsByPlayer[white] ?: 0) + 1
+                }
+                MatchResult.BLACK_WIN -> {
+                    sbByPlayer[black] = (sbByPlayer[black] ?: 0.0) + blackScore
+                    mostWinsByPlayer[black] = (mostWinsByPlayer[black] ?: 0) + 1
+                }
+                MatchResult.DRAW -> {
+                    sbByPlayer[white] = (sbByPlayer[white] ?: 0.0) + whiteScore / 2
+                    sbByPlayer[black] = (sbByPlayer[black] ?: 0.0) + blackScore / 2
+                }
+                // Forfeit: treat as draw for tiebreaks per FIDE Annex 3
+                MatchResult.FORFEIT_WHITE -> {
+                    sbByPlayer[black] = (sbByPlayer[black] ?: 0.0) + blackScore / 2
+                    mostWinsByPlayer[black] = (mostWinsByPlayer[black] ?: 0) + 1
+                }
+                MatchResult.FORFEIT_BLACK -> {
+                    sbByPlayer[white] = (sbByPlayer[white] ?: 0.0) + whiteScore / 2
+                    mostWinsByPlayer[white] = (mostWinsByPlayer[white] ?: 0) + 1
+                }
+                MatchResult.BYE -> {}
+            }
+        }
+    }
+
     val standingsResult = players.map { p ->
         val score = data.scores[p.id] ?: 0.0
         val opponents = data.played[p.id]?.toList() ?: emptyList()
@@ -58,37 +101,9 @@ fun calculateStandings(
             opponentScores.sorted().drop(1).sum()
         } else opponentScores.sum()
 
-        var sb = 0.0
-        matchesToProcess.forEach { m ->
-            if (m.whiteId == p.id) {
-                val oppScore = data.scores[m.blackId] ?: 0.0
-                when (m.result) {
-                    MatchResult.WHITE_WIN -> sb += oppScore
-                    MatchResult.DRAW -> sb += oppScore / 2
-                    // Forfeit: treat as draw for tiebreaks per FIDE Annex 3
-                    MatchResult.FORFEIT_WHITE, MatchResult.FORFEIT_BLACK -> sb += oppScore / 2
-                    else -> {}
-                }
-            } else if (m.blackId == p.id) {
-                val oppScore = data.scores[m.whiteId] ?: 0.0
-                when (m.result) {
-                    MatchResult.BLACK_WIN -> sb += oppScore
-                    MatchResult.DRAW -> sb += oppScore / 2
-                    MatchResult.FORFEIT_WHITE, MatchResult.FORFEIT_BLACK -> sb += oppScore / 2
-                    else -> {}
-                }
-            }
-        }
+        val sb = sbByPlayer[p.id] ?: 0.0
+        val mostWins = mostWinsByPlayer[p.id] ?: 0
 
-        var mostWins = 0
-        matchesToProcess.forEach { m ->
-            if (m.result == MatchResult.WHITE_WIN && m.whiteId == p.id) mostWins++
-            if (m.result == MatchResult.BLACK_WIN && m.blackId == p.id) mostWins++
-            if (m.result == MatchResult.FORFEIT_WHITE && m.blackId == p.id) mostWins++
-            if (m.result == MatchResult.FORFEIT_BLACK && m.whiteId == p.id) mostWins++
-        }
-
-        // Performance Rating
         val perfRating = calculatePerformanceRating(players, matchesToProcess, p.id)
 
         PlayerStanding(
@@ -234,52 +249,59 @@ fun calculateTeamStandings(
     val (teamMatchPoints, teamGamePoints) = calculateTeamScores(teams, matches, upToRound)
     val matchesToProcess = if (upToRound != null) matches.filter { it.round <= upToRound } else matches
 
-    val teamPlayed = mutableMapOf<String, MutableSet<String>>()
-    teams.forEach { teamPlayed[it.id] = mutableSetOf() }
-    matchesToProcess.filter { it.teamMatchId != null && it.whiteId != null && it.blackId != null }.forEach { m ->
-        val t1 = teams.find { it.playerIds.contains(m.whiteId) }
-        val t2 = teams.find { it.playerIds.contains(m.blackId) }
-        if (t1 != null && t2 != null) {
-            teamPlayed.getOrPut(t1.id) { mutableSetOf() }.add(t2.id)
-            teamPlayed.getOrPut(t2.id) { mutableSetOf() }.add(t1.id)
+    // O(1) lookups: player → team and teamMatchId → list of matches.
+    val playerToTeam: Map<String, String> = teams
+        .flatMap { t -> t.playerIds.map { it to t.id } }
+        .toMap()
+    val matchesByTeamMatch: Map<String, List<Match>> = matchesToProcess
+        .filter { it.teamMatchId != null }
+        .groupBy { it.teamMatchId!! }
+
+    // For each (teamMatchId), determine the two teams and the per-team game points.
+    // Then accumulate Sonneborn-Berger per team pair.
+    val sbByTeam = HashMap<String, Double>().apply {
+        teams.forEach { put(it.id, 0.0) }
+    }
+    val teamMatchResults = HashMap<String, Pair<String, String>>() // teamMatchId -> (teamA, teamB)
+
+    matchesByTeamMatch.forEach { (tmid, ms) ->
+        val first = ms.firstOrNull() ?: return@forEach
+        val teamA = playerToTeam[first.whiteId] ?: return@forEach
+        val teamB = first.blackId?.let { playerToTeam[it] } ?: return@forEach
+        if (teamA == teamB) return@forEach
+        var gpA = 0.0
+        var gpB = 0.0
+        ms.forEach { m ->
+            val isAWhite = playerToTeam[m.whiteId] == teamA
+            when (m.result) {
+                MatchResult.WHITE_WIN -> if (isAWhite) gpA++ else gpB++
+                MatchResult.BLACK_WIN -> if (isAWhite) gpB++ else gpA++
+                MatchResult.DRAW -> { gpA += 0.5; gpB += 0.5 }
+                MatchResult.FORFEIT_WHITE -> if (isAWhite) gpB++ else gpA++
+                MatchResult.FORFEIT_BLACK -> if (isAWhite) gpA++ else gpB++
+                else -> {}
+            }
         }
+        val mpA = teamMatchPoints[teamA] ?: 0.0
+        val mpB = teamMatchPoints[teamB] ?: 0.0
+        if (gpA > gpB) {
+            sbByTeam[teamA] = (sbByTeam[teamA] ?: 0.0) + mpB
+        } else if (gpA < gpB) {
+            sbByTeam[teamB] = (sbByTeam[teamB] ?: 0.0) + mpA
+        } else {
+            sbByTeam[teamA] = (sbByTeam[teamA] ?: 0.0) + mpB / 2
+            sbByTeam[teamB] = (sbByTeam[teamB] ?: 0.0) + mpA / 2
+        }
+        teamMatchResults[tmid] = teamA to teamB
     }
 
     val standings = teams.map { team ->
-        val mp = teamMatchPoints[team.id] ?: 0.0
-        val gp = teamGamePoints[team.id] ?: 0.0
-        var sb = 0.0
-
-        val opponents = teamPlayed[team.id] ?: emptySet()
-        opponents.forEach { oppId ->
-            val teamMatches = matchesToProcess.filter { m ->
-                m.teamMatchId != null &&
-                ((teams.find { it.id == team.id }?.playerIds?.contains(m.whiteId) == true &&
-                  teams.find { it.id == oppId }?.playerIds?.contains(m.blackId) == true) ||
-                 (teams.find { it.id == team.id }?.playerIds?.contains(m.blackId) == true &&
-                  teams.find { it.id == oppId }?.playerIds?.contains(m.whiteId) == true))
-            }
-            if (teamMatches.isNotEmpty()) {
-                var teamGP = 0.0
-                var oppGP = 0.0
-                teamMatches.forEach { m ->
-                    val isTeamWhite = teams.find { it.id == team.id }?.playerIds?.contains(m.whiteId) == true
-                    when (m.result) {
-                        MatchResult.WHITE_WIN -> if (isTeamWhite) teamGP++ else oppGP++
-                        MatchResult.BLACK_WIN -> if (isTeamWhite) oppGP++ else teamGP++
-                        MatchResult.DRAW -> { teamGP += 0.5; oppGP += 0.5 }
-                        MatchResult.FORFEIT_WHITE -> if (isTeamWhite) oppGP++ else teamGP++
-                        MatchResult.FORFEIT_BLACK -> if (isTeamWhite) teamGP++ else oppGP++
-                        else -> {}
-                    }
-                }
-                val oppMP = teamMatchPoints[oppId] ?: 0.0
-                if (teamGP > oppGP) sb += oppMP
-                else if (teamGP == oppGP) sb += oppMP / 2
-            }
-        }
-
-        TeamStanding(team = team, matchPoints = mp, gamePoints = gp, sonnebornBerger = sb)
+        TeamStanding(
+            team = team,
+            matchPoints = teamMatchPoints[team.id] ?: 0.0,
+            gamePoints = teamGamePoints[team.id] ?: 0.0,
+            sonnebornBerger = sbByTeam[team.id] ?: 0.0
+        )
     }
 
     return standings.sortedWith(
