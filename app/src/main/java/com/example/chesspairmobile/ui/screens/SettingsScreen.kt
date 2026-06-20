@@ -36,33 +36,65 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // DB export
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri: Uri? ->
-        uri?.let {
-            scope.launch {
-                val dbFile = context.getDatabasePath("chesspair-db")
-                if (dbFile.exists()) {
-                    context.contentResolver.openOutputStream(uri)?.use { out ->
-                        dbFile.inputStream().use { inp -> inp.copyTo(out) }
-                    }
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val dbFile = context.getDatabasePath("chesspair-db")
+            if (!dbFile.exists()) {
+                snackbarHostState.showSnackbar("No database to export")
+                return@launch
+            }
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    dbFile.inputStream().use { inp -> inp.copyTo(out) }
                 }
+                snackbarHostState.showSnackbar("Database exported")
+            } catch (e: Exception) {
+                snackbarHostState.showSnackbar("Export failed: ${e.message ?: "unknown error"}")
             }
         }
     }
 
-    // DB import
+    // DB import — import to a temp file, validate, then atomically replace.
+    // The user must restart the app for changes to take effect because the
+    // Room database handle is already open in the process.
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let {
-            scope.launch {
-                val dbFile = context.getDatabasePath("chesspair-db")
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val dbFile = context.getDatabasePath("chesspair-db")
+            val tempFile = java.io.File(dbFile.parentFile, "chesspair-db.import")
+            try {
                 context.contentResolver.openInputStream(uri)?.use { inp ->
-                    dbFile.outputStream().use { out -> inp.copyTo(out) }
+                    tempFile.outputStream().use { out -> inp.copyTo(out) }
+                } ?: run {
+                    snackbarHostState.showSnackbar("Could not read selected file")
+                    return@launch
                 }
+                if (tempFile.length() < 16) {
+                    tempFile.delete()
+                    snackbarHostState.showSnackbar("Selected file is not a valid database")
+                    return@launch
+                }
+                // Remove the SQLite sidecar files so the import takes effect on next launch
+                java.io.File(dbFile.parentFile, "chesspair-db-shm").delete()
+                java.io.File(dbFile.parentFile, "chesspair-db-wal").delete()
+                if (!tempFile.renameTo(dbFile)) {
+                    tempFile.inputStream().use { inp ->
+                        dbFile.outputStream().use { out -> inp.copyTo(out) }
+                    }
+                    tempFile.delete()
+                }
+                snackbarHostState.showSnackbar("Database imported — please restart the app")
+            } catch (e: Exception) {
+                tempFile.delete()
+                snackbarHostState.showSnackbar("Import failed: ${e.message ?: "unknown error"}")
             }
         }
     }
@@ -77,7 +109,8 @@ fun SettingsScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -169,13 +202,18 @@ fun SettingsScreen(
                     var drawPts by remember(settings) { mutableStateOf(settings.defaultDrawPoints.toString()) }
                     var lossPts by remember(settings) { mutableStateOf(settings.defaultLossPoints.toString()) }
 
+                    fun commit() {
+                        val w = winPts.toDoubleOrNull() ?: return
+                        val d = drawPts.toDoubleOrNull() ?: return
+                        val l = lossPts.toDoubleOrNull() ?: return
+                        scope.launch { preferences.setDefaultScoring(w, d, l) }
+                    }
+
                     OutlinedTextField(
                         value = winPts,
                         onValueChange = {
                             winPts = it
-                            it.toDoubleOrNull()?.let { v ->
-                                scope.launch { preferences.setDefaultScoring(v, settings.defaultDrawPoints, settings.defaultLossPoints) }
-                            }
+                            commit()
                         },
                         label = { Text("Win") },
                         modifier = Modifier.weight(1f),
@@ -185,9 +223,7 @@ fun SettingsScreen(
                         value = drawPts,
                         onValueChange = {
                             drawPts = it
-                            it.toDoubleOrNull()?.let { v ->
-                                scope.launch { preferences.setDefaultScoring(settings.defaultWinPoints, v, settings.defaultLossPoints) }
-                            }
+                            commit()
                         },
                         label = { Text("Draw") },
                         modifier = Modifier.weight(1f),
@@ -197,9 +233,7 @@ fun SettingsScreen(
                         value = lossPts,
                         onValueChange = {
                             lossPts = it
-                            it.toDoubleOrNull()?.let { v ->
-                                scope.launch { preferences.setDefaultScoring(settings.defaultWinPoints, settings.defaultDrawPoints, v) }
-                            }
+                            commit()
                         },
                         label = { Text("Loss") },
                         modifier = Modifier.weight(1f),

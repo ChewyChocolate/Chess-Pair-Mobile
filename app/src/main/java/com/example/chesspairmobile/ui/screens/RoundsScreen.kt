@@ -125,9 +125,11 @@ fun RoundsScreen(
                             Text("Start Tournament")
                         }
                         Spacer(Modifier.height(8.dp))
-                        if (players.count { it.active && !it.withdrawn } < 2) {
+                        val activeCount = players.count { it.active && !it.withdrawn }
+                        if (activeCount < 2) {
                             Text(
-                                "Add at least 2 active players to begin",
+                                if (activeCount == 0) "Add at least 2 active players to begin"
+                                else "Add at least 1 more active player to begin",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error
                             )

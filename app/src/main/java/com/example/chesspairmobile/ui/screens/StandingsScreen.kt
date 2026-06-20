@@ -31,6 +31,7 @@ import com.example.chesspairmobile.ui.theme.GoldMedal
 import com.example.chesspairmobile.ui.theme.SilverMedal
 import com.example.chesspairmobile.ui.theme.BronzeMedal
 import com.example.chesspairmobile.logic.calculateStandings
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -89,6 +90,7 @@ fun StandingsScreen(
             com.example.chesspairmobile.data.models.Player(
                 id = p.id, name = p.name, rating = p.rating,
                 title = p.title, club = p.club,
+                pairingNumber = p.pairingNumber,
                 active = p.active, withdrawn = p.withdrawn,
                 requestedByes = byes, penaltyPoints = p.penaltyPoints
             )
@@ -121,20 +123,59 @@ fun StandingsScreen(
     }
 
     val tableScrollState = rememberScrollState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri: android.net.Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val csv = onExportCsv()
+        if (csv.isEmpty()) {
+            scope.launch { snackbarHostState.showSnackbar("No standings to export") }
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    out.write(csv.toByteArray(Charsets.UTF_8))
+                }
+                snackbarHostState.showSnackbar("Standings exported")
+            } catch (e: Exception) {
+                snackbarHostState.showSnackbar("Export failed: ${e.message ?: "unknown error"}")
+            }
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding)
         ) {
             // Title
-            Text(
-                "Standings",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Standings",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                FilledTonalButton(onClick = {
+                    val safeName = tournament.name.replace(Regex("[^A-Za-z0-9_-]"), "_").take(40)
+                    exportLauncher.launch("${safeName}_standings.csv")
+                }) {
+                    Icon(Icons.Default.FileDownload, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Export CSV")
+                }
+            }
             // Round selector
             Surface(
                 Modifier.fillMaxWidth(),

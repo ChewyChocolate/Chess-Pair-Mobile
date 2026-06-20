@@ -457,7 +457,7 @@ fun generateRoundRobin(players: List<Player>, round: Int): List<Match> {
 
     val p = workingPlayers.toMutableList()
     for (i in 1 until round) {
-        val last = p.removeLast()
+        val last = p.removeAt(p.lastIndex)
         p.add(1, last)
     }
 

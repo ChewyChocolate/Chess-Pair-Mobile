@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.example.chesspairmobile.data.db.Converters
 import com.example.chesspairmobile.data.models.*
 import com.example.chesspairmobile.data.preferences.AppPreferences
+import com.example.chesspairmobile.data.preferences.AppSettings
 import com.example.chesspairmobile.data.preferences.ThemeMode
 import com.example.chesspairmobile.ui.screens.*
 import com.example.chesspairmobile.ui.theme.ChessPairMobileTheme
@@ -34,7 +35,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val preferences = remember { AppPreferences(applicationContext) }
-            val settings by preferences.settings.collectAsState(initial = AppPreferences(applicationContext).run { com.example.chesspairmobile.data.preferences.AppSettings() })
+            val settings by preferences.settings.collectAsState(initial = AppSettings())
             val themeOverride = when (settings.themeMode) {
                 ThemeMode.SYSTEM -> null
                 ThemeMode.LIGHT -> false
@@ -56,7 +57,9 @@ data class NavItem(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChessPairApp(preferences: AppPreferences = AppPreferences(androidx.compose.ui.platform.LocalContext.current)) {
+fun ChessPairApp(
+    preferences: AppPreferences = AppPreferences(androidx.compose.ui.platform.LocalContext.current)
+) {
     val viewModel: TournamentViewModel = viewModel()
     val tournaments by viewModel.tournaments.collectAsState()
     val activeId by viewModel.activeTournamentId.collectAsState()
@@ -64,7 +67,7 @@ fun ChessPairApp(preferences: AppPreferences = AppPreferences(androidx.compose.u
     val teams by viewModel.teams.collectAsState()
     val matches by viewModel.matches.collectAsState()
 
-    val settings by preferences.settings.collectAsState(initial = AppPreferences(androidx.compose.ui.platform.LocalContext.current).run { com.example.chesspairmobile.data.preferences.AppSettings() })
+    val settings by preferences.settings.collectAsState(initial = AppSettings())
 
     val activeTournament = tournaments.find { it.id == activeId }
 
@@ -246,7 +249,7 @@ fun ChessPairApp(preferences: AppPreferences = AppPreferences(androidx.compose.u
                     tournament = activeTournament,
                     players = players,
                     matches = matches,
-                    onExportCsv = { "" },
+                    onExportCsv = { viewModel.exportStandingsCsv() },
                     onUpdateTiebreakOrder = { order -> viewModel.updateTournamentSettings(tiebreakOrder = order) }
                 )
             }

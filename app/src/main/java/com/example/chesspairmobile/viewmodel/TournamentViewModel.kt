@@ -501,15 +501,15 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     ) {
         val t = getActiveTournament() ?: return
         val updated = t.copy(
-            name = name ?: t.name,
-            section = section ?: t.section,
-            timeControl = timeControl ?: t.timeControl,
+            name = name?.takeIf { it.isNotBlank() } ?: t.name,
+            section = section?.takeIf { it.isNotBlank() } ?: t.section,
+            timeControl = timeControl?.takeIf { it.isNotBlank() } ?: t.timeControl,
             pointsForWin = pointsForWin ?: t.pointsForWin,
             pointsForDraw = pointsForDraw ?: t.pointsForDraw,
             pointsForLoss = pointsForLoss ?: t.pointsForLoss,
             avoidClubPairings = avoidClubPairings ?: t.avoidClubPairings,
             accelerationMode = accelerationMode?.name ?: t.accelerationMode,
-            liveBroadcastUrl = liveBroadcastUrl ?: t.liveBroadcastUrl,
+            liveBroadcastUrl = liveBroadcastUrl?.takeIf { it.isNotBlank() } ?: t.liveBroadcastUrl,
             tiebreakOrder = tiebreakOrder?.let { converters.fromTiebreakList(it) } ?: t.tiebreakOrder
         )
         updateTournament(updated)
@@ -622,6 +622,34 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         isManual = m.isManual, pgn = m.pgn
     )
 
+    // ---- Standings CSV export ----
+    fun exportStandingsCsv(): String {
+        val t = getActiveTournament() ?: return ""
+        val ps = getTournamentPlayers()
+        val ms = getTournamentMatches()
+        val standings = calculateStandings(
+            ps, ms,
+            t.pointsForWin, t.pointsForDraw, t.pointsForLoss,
+            converters.toTiebreakList(t.tiebreakOrder)
+        )
+        val sb = StringBuilder()
+        sb.append("Rank,Name,Rating,Score,Buchholz,MedianBuchholz,BuchholzCut1,SonnebornBerger,MostWins,Progressive,Performance\n")
+        standings.forEachIndexed { idx, s ->
+            sb.append(idx + 1).append(",")
+            sb.append("\"${s.player.name.replace("\"", "\"\"")}\"").append(",")
+            sb.append(s.player.rating ?: "").append(",")
+            sb.append(s.score).append(",")
+            sb.append(s.buchholz).append(",")
+            sb.append(s.medianBuchholz).append(",")
+            sb.append(s.buchholzCut1).append(",")
+            sb.append(s.sonnebornBerger).append(",")
+            sb.append(s.mostWins).append(",")
+            sb.append(s.progressive).append(",")
+            sb.append(s.performanceRating).append("\n")
+        }
+        return sb.toString()
+    }
+
     // ---- Team pairing helpers ----
 
     private fun generateTeamSwiss(teams: List<Team>, matches: List<Match>, round: Int): List<Match> {
@@ -727,7 +755,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         val p = workingTeams.toMutableList()
         for (i in 1 until round) {
             if (p.isEmpty()) break
-            val last = p.removeLast()
+            val last = p.removeAt(p.lastIndex)
             p.add(1, last)
         }
 

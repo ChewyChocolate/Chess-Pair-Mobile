@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -16,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.chesspairmobile.data.db.TournamentEntity
 import com.example.chesspairmobile.data.models.*
@@ -225,10 +227,16 @@ fun CreateTournamentDialog(
     var swissExtraRound by remember { mutableStateOf(true) }
     var accelMode by remember { mutableStateOf(defaultAcceleration) }
     var tiebreakOrder by remember { mutableStateOf(defaultTiebreakOrder) }
+    var tiebreakCustomized by remember { mutableStateOf(false) }
     var expandedType by remember { mutableStateOf(false) }
 
+    // Only reset tiebreak order to the type default when the user hasn't
+    // manually customized it. The default is the *initial* value; if the
+    // user has reordered anything via the panel, preserve their work.
     LaunchedEffect(type) {
-        tiebreakOrder = defaultTiebreakOrderForType(type)
+        if (!tiebreakCustomized) {
+            tiebreakOrder = defaultTiebreakOrderForType(type)
+        }
     }
 
     AlertDialog(
@@ -269,7 +277,15 @@ fun CreateTournamentDialog(
                     Text("Team Tournament")
                 }
 
-                OutlinedTextField(value = rounds, onValueChange = { rounds = it }, label = { Text("Number of Rounds") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !autoCalc)
+                OutlinedTextField(
+                    value = rounds,
+                    onValueChange = { input -> rounds = input.filter { it.isDigit() } },
+                    label = { Text("Number of Rounds") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !autoCalc,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
 
                 if (type == TournamentType.SWISS) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -292,23 +308,32 @@ fun CreateTournamentDialog(
                 }
 
                 if (type == TournamentType.SWISS) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = accelMode != AccelerationMode.NONE, onCheckedChange = { accelMode = if (it) AccelerationMode.BAKU else AccelerationMode.NONE })
-                        Text("Accelerated pairings (Baku)")
+                    Text("Acceleration", style = MaterialTheme.typography.labelLarge)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf(AccelerationMode.NONE to "None", AccelerationMode.BAKU to "Baku", AccelerationMode.LIM to "Lim").forEach { (mode, label) ->
+                            FilterChip(
+                                selected = accelMode == mode,
+                                onClick = { accelMode = mode },
+                                label = { Text(label) }
+                            )
+                        }
                     }
                 }
 
                 Text("Scoring", style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = winPts, onValueChange = { winPts = it }, label = { Text("Win") }, modifier = Modifier.weight(1f), singleLine = true)
-                    OutlinedTextField(value = drawPts, onValueChange = { drawPts = it }, label = { Text("Draw") }, modifier = Modifier.weight(1f), singleLine = true)
-                    OutlinedTextField(value = lossPts, onValueChange = { lossPts = it }, label = { Text("Loss") }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(value = winPts, onValueChange = { winPts = it }, label = { Text("Win") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    OutlinedTextField(value = drawPts, onValueChange = { drawPts = it }, label = { Text("Draw") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    OutlinedTextField(value = lossPts, onValueChange = { lossPts = it }, label = { Text("Loss") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                 }
 
                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
                 TiebreakConfigPanel(
                     tiebreakOrder = tiebreakOrder,
-                    onTiebreakOrderChanged = { tiebreakOrder = it },
+                    onTiebreakOrderChanged = {
+                        tiebreakOrder = it
+                        tiebreakCustomized = true
+                    },
                     tournamentType = type
                 )
             }

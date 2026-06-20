@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -20,6 +21,7 @@ import com.example.chesspairmobile.data.db.PlayerEntity
 import com.example.chesspairmobile.data.db.TournamentEntity
 import com.example.chesspairmobile.data.models.PlayerStanding
 import com.example.chesspairmobile.data.models.TiebreakType
+import com.example.chesspairmobile.data.preferences.AppPreferences
 import com.example.chesspairmobile.logic.calculateStandings
 import kotlinx.coroutines.delay
 
@@ -48,25 +50,30 @@ fun TvDisplayScreen(
     val tiebreakOrder = listOf(TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ,
         TiebreakType.MEDIAN_BUCHHOLZ, TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS, TiebreakType.PROGRESSIVE)
 
-    val modelPlayers = players.map { p ->
+    val modelPlayers = remember(players) {
         val gson = com.google.gson.Gson()
         val type = object : com.google.gson.reflect.TypeToken<List<Int>>() {}.type
-        val byes = try { gson.fromJson<List<Int>>(p.requestedByes, type) ?: emptyList() } catch (_: Exception) { emptyList<Int>() }
-        com.example.chesspairmobile.data.models.Player(
-            id = p.id, name = p.name, rating = p.rating,
-            title = p.title, club = p.club,
-            active = p.active, withdrawn = p.withdrawn,
-            requestedByes = byes, penaltyPoints = p.penaltyPoints
-        )
+        players.map { p ->
+            val byes = try { gson.fromJson<List<Int>>(p.requestedByes, type) ?: emptyList() } catch (_: Exception) { emptyList<Int>() }
+            com.example.chesspairmobile.data.models.Player(
+                id = p.id, name = p.name, rating = p.rating,
+                title = p.title, club = p.club,
+                pairingNumber = p.pairingNumber,
+                active = p.active, withdrawn = p.withdrawn,
+                requestedByes = byes, penaltyPoints = p.penaltyPoints
+            )
+        }
     }
 
-    val modelMatches = matches.map { m ->
-        com.example.chesspairmobile.data.models.Match(
-            id = m.id, round = m.round, whiteId = m.whiteId, blackId = m.blackId,
-            result = try { m.result?.let { com.example.chesspairmobile.data.models.MatchResult.valueOf(it) } } catch (_: Exception) { null },
-            boardNumber = m.boardNumber, teamMatchId = m.teamMatchId,
-            isManual = m.isManual, pgn = m.pgn
-        )
+    val modelMatches = remember(matches) {
+        matches.map { m ->
+            com.example.chesspairmobile.data.models.Match(
+                id = m.id, round = m.round, whiteId = m.whiteId, blackId = m.blackId,
+                result = try { m.result?.let { com.example.chesspairmobile.data.models.MatchResult.valueOf(it) } } catch (_: Exception) { null },
+                boardNumber = m.boardNumber, teamMatchId = m.teamMatchId,
+                isManual = m.isManual, pgn = m.pgn
+            )
+        }
     }
 
     val standings = remember(modelPlayers, modelMatches, tournament, tiebreakOrder) {
@@ -81,10 +88,15 @@ fun TvDisplayScreen(
     var page by remember { mutableIntStateOf(0) }
     var progress by remember { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(Unit) {
+    val context = LocalContext.current
+    val cycleSeconds by produceState(initialValue = 10) {
+        AppPreferences(context).settings.collect { value = it.tvCycleSeconds }
+    }
+
+    LaunchedEffect(cycleSeconds) {
         var tick = 0
         while (true) {
-            val cycleTime = 5000L
+            val cycleTime = cycleSeconds.coerceIn(5, 30) * 1000L
             val steps = 50
             val step = cycleTime / steps
             for (i in 0..steps) {
@@ -105,7 +117,10 @@ fun TvDisplayScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(DarkBg)) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, top = 64.dp, bottom = 24.dp)
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
             // Header
             Text(

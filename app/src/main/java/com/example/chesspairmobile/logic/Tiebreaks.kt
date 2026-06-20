@@ -18,18 +18,24 @@ fun calculateStandings(
     val data = calculateScores(players, matches, pointsForWin, pointsForDraw, pointsForLoss, upToRound)
     val matchesToProcess = if (upToRound != null) matches.filter { it.round <= upToRound } else matches
 
-    // Progressive score: sum of scores after each round
+    // Progressive score: sum of scores after each round.
+    // Pre-index matches by round so we walk rounds once, not n*m times.
+    val maxRound = upToRound ?: matches.maxOfOrNull { it.round } ?: 0
+    val matchesByRound: Map<Int, List<Match>> = matchesToProcess
+        .filter { it.result != null }
+        .groupBy { it.round }
+
     val progressiveScores = mutableMapOf<String, Double>()
     players.forEach { p ->
         var cumulative = 0.0
-        for (r in 1..(upToRound ?: matches.maxOfOrNull { it.round } ?: 0)) {
-            val roundMatches = matches.filter { it.round == r && it.result != null }
-            val playerMatch = roundMatches.find { it.whiteId == p.id || it.blackId == p.id }
+        val requested = p.requestedByes.toHashSet()
+        for (r in 1..maxRound) {
+            val roundMatches = matchesByRound[r] ?: emptyList()
+            val playerMatch = roundMatches.firstOrNull { it.whiteId == p.id || it.blackId == p.id }
             if (playerMatch != null) {
                 cumulative += getMatchPointsForPlayer(playerMatch, p.id, pointsForWin, pointsForDraw, pointsForLoss)
             }
-            // Also count requested byes for this round
-            if (p.requestedByes.contains(r)) {
+            if (r in requested) {
                 cumulative += pointsForDraw
             }
         }
