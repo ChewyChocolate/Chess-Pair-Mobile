@@ -148,22 +148,6 @@ fun SettingsScreen(
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
-
-                Text("TV display cycle: ${settings.tvCycleSeconds}s", style = MaterialTheme.typography.bodyMedium)
-                Slider(
-                    value = settings.tvCycleSeconds.toFloat(),
-                    onValueChange = {
-                        scope.launch { preferences.setTvCycleSeconds(it.toInt()) }
-                    },
-                    valueRange = 5f..30f,
-                    steps = 24, // step by 1
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("5s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("30s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
             }
 
             // ---- Behavior ----

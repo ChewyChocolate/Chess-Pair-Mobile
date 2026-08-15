@@ -108,7 +108,11 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         }
 
     private fun requireStatus(vararg allowed: TournamentStatus): Boolean {
-        val t = activeTournamentOrNull ?: return false
+        val t = activeTournamentOrNull
+        if (t == null) {
+            // Race: tournament just created, Flow hasn't emitted yet – assume SETUP
+            return _activeTournamentId.value != null && TournamentStatus.SETUP in allowed
+        }
         val status = try { TournamentStatus.valueOf(t.status) } catch (_: Exception) { return false }
         return status in allowed
     }
@@ -151,10 +155,10 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         )
         viewModelScope.launch {
             dao.insertTournament(t)
-            _activeTournamentId.value = t.id
-            _players.value = emptyList()
-            _teams.value = emptyList()
-            _matches.value = emptyList()
+            // Optimistically update local list so requireStatus() works immediately
+            // (the Flow collector will reconcile shortly)
+            _tournaments.value = _tournaments.value + t
+            setActiveTournament(t.id)
         }
     }
 
@@ -171,10 +175,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
             dao.deleteMatchesByTournament(id)
             dao.deleteTournamentById(id)
             if (_activeTournamentId.value == id) {
-                _activeTournamentId.value = null
-                _players.value = emptyList()
-                _teams.value = emptyList()
-                _matches.value = emptyList()
+                setActiveTournament(null)
             }
         }
     }

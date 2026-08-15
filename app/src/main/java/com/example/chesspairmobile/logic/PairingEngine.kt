@@ -130,19 +130,30 @@ fun checkColorSequence(seq: List<Char>, newColor: Char): Boolean {
     return !(last2[0] == newColor && last2[1] == newColor)
 }
 
+private const val DUMMY_ID = "__DUMMY__"
+
+private fun isSameClub(a: Player, b: Player): Boolean =
+    !a.club.isNullOrEmpty() && !b.club.isNullOrEmpty() && a.club == b.club
 
 fun generateRoundRobin(
     players: List<Player>,
     round: Int,
     avoidClubPairings: Boolean = false
 ): List<Match> {
+    // Deterministic ordering by pairing number / rating so the Berger table is stable
+    val seedComparator = compareByDescending<Player> {
+        if (it.pairingNumber > 0) Int.MAX_VALUE - it.pairingNumber else it.rating ?: 0
+    }.thenBy { it.name }
+
     val activePlayers = players.filter { !it.withdrawn && !it.requestedByes.contains(round) }
+        .sortedWith(seedComparator)
     val matches = mutableListOf<Match>()
     val n = activePlayers.size
     if (n < 2) return emptyList()
     val isOdd = n % 2 != 0
 
-    val workingPlayers = if (isOdd) activePlayers + Player(id = "dummy", name = "Bye") else activePlayers
+    val dummy = Player(id = DUMMY_ID, name = "Bye")
+    val workingPlayers = if (isOdd) activePlayers + dummy else activePlayers
     val totalPlayers = workingPlayers.size
 
     val p = workingPlayers.toMutableList()
@@ -151,13 +162,16 @@ fun generateRoundRobin(
         p.add(1, last)
     }
 
+    // Build initial Berger pairs (ignoring clubs) and collect dummy BYEs
+    val byeMatches = mutableListOf<Match>()
+    val initialPairs = mutableListOf<Pair<Player, Player>>()
+
     for (i in 0 until totalPlayers / 2) {
         val p1 = p[i]
         val p2 = p[totalPlayers - 1 - i]
-
-        if (p1.id == "dummy" || p2.id == "dummy") {
-            val realPlayer = if (p1.id == "dummy") p2 else p1
-            matches.add(
+        if (p1.id == DUMMY_ID || p2.id == DUMMY_ID) {
+            val realPlayer = if (p1.id == DUMMY_ID) p2 else p1
+            byeMatches.add(
                 Match(
                     round = round,
                     whiteId = realPlayer.id,
@@ -167,38 +181,83 @@ fun generateRoundRobin(
                 )
             )
         } else {
-            val sameClub = avoidClubPairings &&
-                !p1.club.isNullOrEmpty() &&
-                !p2.club.isNullOrEmpty() &&
-                p1.club == p2.club
-            if (sameClub) {
-                // Emit a bye for p1 and a follow-up pairing. The user will need to
-                // manually re-pair this round. This is the FIDE-acceptable workaround
-                // when club avoidance cannot be satisfied in a fixed rotation.
-                matches.add(
-                    Match(
-                        round = round,
-                        whiteId = p1.id,
-                        blackId = null,
-                        result = MatchResult.BYE,
-                        boardNumber = 999
-                    )
-                )
-            } else {
-                val isEvenRound = round % 2 == 0
-                val white = if (isEvenRound) p2 else p1
-                val black = if (isEvenRound) p1 else p2
-                matches.add(
-                    Match(
-                        round = round,
-                        whiteId = white.id,
-                        blackId = black.id,
-                        boardNumber = i + 1
-                    )
-                )
-            }
+            initialPairs.add(p1 to p2)
         }
     }
+
+    if (!avoidClubPairings) {
+        // No club restriction – emit Berger pairs directly
+        initialPairs.forEachIndexed { idx, (a, b) ->
+            val isEvenRound = round % 2 == 0
+            val white = if (isEvenRound) b else a
+            val black = if (isEvenRound) a else b
+            matches.add(
+                Match(
+                    round = round,
+                    whiteId = white.id,
+                    blackId = black.id,
+                    boardNumber = idx + 1
+                )
+            )
+        }
+        matches.addAll(byeMatches)
+        return matches
+    }
+
+    // Club avoidance – try to resolve same-club pairs via swaps before resorting to BYEs
+    val pairs = initialPairs.toMutableList()
+    var iter = 0
+    while (iter < 10) {
+        val conflictIdx = pairs.indexOfFirst { (a, b) -> isSameClub(a, b) }
+        if (conflictIdx == -1) break
+        val (a, b) = pairs[conflictIdx]
+        var swapped = false
+        for (j in pairs.indices) {
+            if (j == conflictIdx) continue
+            val (c, d) = pairs[j]
+            // Try swap b with c -> (a,c) & (b,d)
+            if (!isSameClub(a, c) && !isSameClub(b, d)) {
+                pairs[conflictIdx] = a to c
+                pairs[j] = b to d
+                swapped = true
+                break
+            }
+            // Try swap b with d -> (a,d) & (b,c)
+            if (!isSameClub(a, d) && !isSameClub(b, c)) {
+                pairs[conflictIdx] = a to d
+                pairs[j] = b to c
+                swapped = true
+                break
+            }
+        }
+        if (!swapped) {
+            // No swap can resolve – give BYEs to both players of the conflicted pair
+            // (covers the orphan bug: previously only p1 got a BYE, p2 was dropped)
+            byeMatches.add(
+                Match(round = round, whiteId = a.id, blackId = null, result = MatchResult.BYE, boardNumber = 999)
+            )
+            byeMatches.add(
+                Match(round = round, whiteId = b.id, blackId = null, result = MatchResult.BYE, boardNumber = 999)
+            )
+            pairs.removeAt(conflictIdx)
+        }
+        iter++
+    }
+
+    pairs.forEachIndexed { idx, (a, b) ->
+        val isEvenRound = round % 2 == 0
+        val white = if (isEvenRound) b else a
+        val black = if (isEvenRound) a else b
+        matches.add(
+            Match(
+                round = round,
+                whiteId = white.id,
+                blackId = black.id,
+                boardNumber = idx + 1
+            )
+        )
+    }
+    matches.addAll(byeMatches)
     return matches
 }
 

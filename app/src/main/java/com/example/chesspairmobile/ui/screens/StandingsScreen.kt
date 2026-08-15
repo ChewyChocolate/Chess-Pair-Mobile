@@ -1,12 +1,15 @@
 package com.example.chesspairmobile.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -31,6 +34,7 @@ import com.example.chesspairmobile.ui.theme.GoldMedal
 import com.example.chesspairmobile.ui.theme.SilverMedal
 import com.example.chesspairmobile.ui.theme.BronzeMedal
 import com.example.chesspairmobile.logic.calculateStandings
+import com.example.chesspairmobile.logic.getPlayerStats
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -109,6 +113,7 @@ fun StandingsScreen(
     }
 
     var selectedRound by remember { mutableIntStateOf(tournament.currentRound) }
+    var selectedStanding by remember { mutableStateOf<PlayerStanding?>(null) }
     LaunchedEffect(tournament.currentRound) {
         selectedRound = tournament.currentRound
     }
@@ -235,16 +240,145 @@ fun StandingsScreen(
 
             LazyColumn {
                 itemsIndexed(standings) { index, standing ->
-                    StandingRow(index = index, standing = standing, columns = columns, scrollState = tableScrollState)
+                    StandingRow(
+                        index = index,
+                        standing = standing,
+                        columns = columns,
+                        scrollState = tableScrollState,
+                        onClick = { selectedStanding = standing }
+                    )
                 }
                 item { Spacer(Modifier.height(16.dp)) }
             }
         }
     }
+
+    selectedStanding?.let { standing ->
+        val stats = remember(standing, modelPlayers, modelMatches) {
+            getPlayerStats(modelPlayers, modelMatches, standing.player.id)
+        }
+        // Also collect requested byes that have no match entry to show them
+        val historyWithByes = remember(stats, standing, tournament) {
+            val existingRounds = stats.stats.map { it.round }.toSet()
+            val requested = standing.player.requestedByes.filter { it in 1..tournament.currentRound && it !in existingRounds }
+                .map { r ->
+                    com.example.chesspairmobile.data.models.PlayerMatchStat(
+                        round = r,
+                        opponentId = null,
+                        opponentName = "BYE (requested)",
+                        color = null,
+                        result = "0.5"
+                    )
+                }
+            (stats.stats + requested).sortedBy { it.round }
+        }
+        AlertDialog(
+            onDismissRequest = { selectedStanding = null },
+            title = {
+                Column {
+                    Text(standing.player.name, fontWeight = FontWeight.Bold)
+                    standing.player.title?.let {
+                        Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        standing.player.rating?.let {
+                            Text("Rating $it", style = MaterialTheme.typography.labelSmall)
+                        }
+                        standing.player.club?.let {
+                            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text("${standing.score} pts", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
+                    if (historyWithByes.isEmpty()) {
+                        Text("No games played yet", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        // Header
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("R", Modifier.width(28.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                            Text("Clr", Modifier.width(36.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                            Text("Opponent", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            Text("Res", Modifier.width(44.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        historyWithByes.forEach { s ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("${s.round}", Modifier.width(28.dp), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                                // Color
+                                if (s.color != null) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = if (s.color == 'W') Color(0xFFF5F5F5) else Color(0xFF2C2C2C),
+                                        border = if (s.color == 'W') androidx.compose.foundation.BorderStroke(1.dp, Color.Gray.copy(alpha = 0.3f)) else null,
+                                        modifier = Modifier.width(36.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 2.dp)) {
+                                            Text("${s.color}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = if (s.color == 'W') Color.Black else Color.White)
+                                        }
+                                    }
+                                } else {
+                                    Text("-", Modifier.width(36.dp), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Text(
+                                    s.opponentName,
+                                    Modifier.weight(1f).padding(horizontal = 8.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1
+                                )
+                                val (resText, resColor) = when (s.result) {
+                                    "1" -> "1-0" to Color(0xFF2E7D32)
+                                    "0" -> "0-1" to Color(0xFFC62828)
+                                    "0.5" -> "½-½" to Color(0xFF546E7A)
+                                    null -> "vs" to MaterialTheme.colorScheme.onSurfaceVariant
+                                    else -> (s.result ?: "-") to MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = resColor.copy(alpha = if (s.result == null) 0.08f else 0.12f)
+                                ) {
+                                    Text(
+                                        resText,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp).width(44.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center,
+                                        color = resColor
+                                    )
+                                }
+                            }
+                        }
+                        if (stats.hasColorWarning || stats.hasByeWarning) {
+                            Spacer(Modifier.height(8.dp))
+                            if (stats.hasColorWarning) {
+                                Text("⚠ ${stats.consecutiveColors} same colors in a row (last ${stats.lastColor})", style = MaterialTheme.typography.labelSmall, color = Color(0xFFEF6C00))
+                            }
+                            if (stats.hasByeWarning) {
+                                Text("⚠ ${stats.byeCount} byes", style = MaterialTheme.typography.labelSmall, color = Color(0xFFEF6C00))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { selectedStanding = null }) { Text("Close") }
+            }
+        )
+    }
 }
 
 @Composable
-fun StandingRow(index: Int, standing: PlayerStanding, columns: List<TiebreakColumn>, scrollState: ScrollState) {
+fun StandingRow(index: Int, standing: PlayerStanding, columns: List<TiebreakColumn>, scrollState: ScrollState, onClick: () -> Unit = {}) {
     val podiumColor = when (index) {
         0 -> GoldMedal
         1 -> SilverMedal
@@ -259,7 +393,9 @@ fun StandingRow(index: Int, standing: PlayerStanding, columns: List<TiebreakColu
     }
 
     Surface(
-        modifier = Modifier.fillMaxWidth().then(if (standing.player.withdrawn) Modifier.alpha(0.55f) else Modifier),
+        modifier = Modifier.fillMaxWidth()
+            .then(if (standing.player.withdrawn) Modifier.alpha(0.55f) else Modifier)
+            .clickable(onClick = onClick),
         color = bgColor
     ) {
         Row(

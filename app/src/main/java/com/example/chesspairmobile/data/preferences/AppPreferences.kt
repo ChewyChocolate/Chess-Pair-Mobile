@@ -17,7 +17,6 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
-    val tvCycleSeconds: Int = 10,
     val defaultWinPoints: Double = 1.0,
     val defaultDrawPoints: Double = 0.5,
     val defaultLossPoints: Double = 0.0,
@@ -37,7 +36,6 @@ class AppPreferences(private val context: Context) {
 
     companion object {
         private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
-        private val KEY_TV_CYCLE = intPreferencesKey("tv_cycle_seconds")
         private val KEY_WIN_PTS = doublePreferencesKey("default_win_points")
         private val KEY_DRAW_PTS = doublePreferencesKey("default_draw_points")
         private val KEY_LOSS_PTS = doublePreferencesKey("default_loss_points")
@@ -50,7 +48,6 @@ class AppPreferences(private val context: Context) {
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         AppSettings(
             themeMode = try { ThemeMode.valueOf(prefs[KEY_THEME_MODE] ?: "SYSTEM") } catch (_: Exception) { ThemeMode.SYSTEM },
-            tvCycleSeconds = prefs[KEY_TV_CYCLE] ?: 10,
             defaultWinPoints = prefs[KEY_WIN_PTS] ?: 1.0,
             defaultDrawPoints = prefs[KEY_DRAW_PTS] ?: 0.5,
             defaultLossPoints = prefs[KEY_LOSS_PTS] ?: 0.0,
@@ -63,10 +60,6 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setThemeMode(mode: ThemeMode) {
         context.dataStore.edit { it[KEY_THEME_MODE] = mode.name }
-    }
-
-    suspend fun setTvCycleSeconds(seconds: Int) {
-        context.dataStore.edit { it[KEY_TV_CYCLE] = seconds.coerceIn(5, 30) }
     }
 
     suspend fun setDefaultScoring(win: Double, draw: Double, loss: Double) {

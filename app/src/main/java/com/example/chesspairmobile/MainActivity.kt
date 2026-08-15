@@ -77,7 +77,6 @@ fun ChessPairApp(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val isTvMode = currentRoute == "tv"
     val isSettings = currentRoute == "settings"
 
     val navItems = listOf(
@@ -93,38 +92,23 @@ fun ChessPairApp(
         navItems + teamNavItem
     } else navItems
 
-    if (isTvMode) {
-        ChessPairMobileTheme(darkTheme = true) {
-            TvDisplayScreen(
-                tournament = activeTournament,
-                players = players,
-                matches = matches,
-                onBack = { navController.popBackStack() }
-            )
-        }
-        return
-    }
-
     var themeChangedKey by remember { mutableIntStateOf(0) }
 
     Scaffold(
         topBar = {
-            if (activeTournament != null && !isTvMode && !isSettings) {
+            if (activeTournament != null && !isSettings) {
                 TopAppBar(
                     title = { Text(activeTournament!!.name, maxLines = 1) },
                     actions = {
                         IconButton(onClick = { navController.navigate("settings") { launchSingleTop = true } }) {
                             Icon(Icons.Default.Settings, "Settings")
                         }
-                        IconButton(onClick = { navController.navigate("tv") { launchSingleTop = true } }) {
-                            Icon(Icons.Default.Tv, "TV Display")
-                        }
                     }
                 )
             }
         },
         bottomBar = {
-            if (activeTournament != null && !isTvMode && !isSettings) {
+            if (activeTournament != null && !isSettings) {
                 NavigationBar {
                     allNavItems.forEach { item ->
                         NavigationBarItem(
@@ -264,8 +248,6 @@ fun ChessPairApp(
                     onUpdateTiebreakOrder = { order -> viewModel.updateTournamentSettings(tiebreakOrder = order) }
                 )
             }
-
-            composable("tv") {}
 
             composable("settings") {
                 SettingsScreen(

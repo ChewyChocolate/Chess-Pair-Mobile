@@ -161,25 +161,7 @@ fun DashboardScreen(
             }
         }
 
-        if (tournament.isTeamTournament) {
-            FilledTonalButton(
-                onClick = { onNavigate("tv") },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Tv, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("TV Display Mode")
-            }
-        } else {
-            OutlinedButton(
-                onClick = { onNavigate("tv") },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Tv, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("TV Display Mode")
-            }
-        }
+
     }
 }
 

@@ -26,6 +26,9 @@ import com.example.chesspairmobile.data.db.MatchEntity
 import com.example.chesspairmobile.data.db.PlayerEntity
 import com.example.chesspairmobile.data.db.TournamentEntity
 import com.example.chesspairmobile.data.models.MatchResult
+import com.example.chesspairmobile.logic.calculateScores
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,6 +78,37 @@ fun RoundsScreen(
     val currentRoundResultsComplete = currentRoundMatches
         .filter { it.blackId != null }
         .all { it.result != null }
+
+    // Scores before the selected round (FIDE pairings show score before the round)
+    val scoreMap: Map<String, Double> = remember(players, matches, tournament, selectedRound) {
+        try {
+            val gson = Gson()
+            val type = object : TypeToken<List<Int>>() {}.type
+            val modelPlayers = players.map { p ->
+                val byes = try { gson.fromJson<List<Int>>(p.requestedByes, type) ?: emptyList<Int>() } catch (_: Exception) { emptyList<Int>() }
+                com.example.chesspairmobile.data.models.Player(
+                    id = p.id, name = p.name, rating = p.rating, title = p.title, club = p.club,
+                    pairingNumber = p.pairingNumber, active = p.active, withdrawn = p.withdrawn,
+                    requestedByes = byes, penaltyPoints = p.penaltyPoints
+                )
+            }
+            val modelMatches = matches.map { m ->
+                com.example.chesspairmobile.data.models.Match(
+                    id = m.id, round = m.round, whiteId = m.whiteId, blackId = m.blackId,
+                    result = try { m.result?.let { com.example.chesspairmobile.data.models.MatchResult.valueOf(it) } } catch (_: Exception) { null },
+                    boardNumber = m.boardNumber, teamMatchId = m.teamMatchId, isManual = m.isManual, pgn = m.pgn
+                )
+            }
+            val upTo = (selectedRound - 1).coerceAtLeast(0)
+            // upTo 0 means no completed rounds yet -> all scores 0 but requested byes for round 0 none
+            calculateScores(
+                modelPlayers, modelMatches,
+                tournament.pointsForWin, tournament.pointsForDraw, tournament.pointsForLoss,
+                upToRound = if (upTo == 0) 0 else upTo
+            ).scores
+        } catch (_: Exception) { emptyMap() }
+    }
+    fun formatScore(v: Double): String = if (v % 1.0 == 0.0) v.toInt().toString() else String.format("%.1f", v)
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -301,6 +335,7 @@ fun RoundsScreen(
                         MatchCard(
                             match = match,
                             players = players,
+                            scores = scoreMap,
                             onUpdateResult = { result -> onUpdateResult(match.id, result) },
                             isSwapMode = showSwapMode,
                             isSwapSelected = swapMatch1?.id == match.id,
@@ -496,11 +531,13 @@ fun MatchCard(
     isSwapSelected: Boolean,
     onSwapSelect: (Boolean) -> Unit,
     showResults: Boolean,
-    enableForfeitScoring: Boolean = true
+    enableForfeitScoring: Boolean = true,
+    scores: Map<String, Double> = emptyMap()
 ) {
     val whitePlayer = players.find { it.id == match.whiteId }
     val blackPlayer = players.find { it.id == match.blackId }
     val isBye = match.blackId == null
+    fun formatScore(v: Double): String = if (v % 1.0 == 0.0) v.toInt().toString() else String.format("%.1f", v)
 
     Card(
         modifier = Modifier
@@ -542,7 +579,8 @@ fun MatchCard(
                         isSwapMode = isSwapMode,
                         isSelected = isSwapSelected,
                         onSwapClick = { onSwapSelect(true) },
-                        color = Color(0xFFF5F5F5)
+                        color = Color(0xFFF5F5F5),
+                        score = whitePlayer?.id?.let { scores[it] }?.let { formatScore(it) }
                     )
                     if (!isBye) {
                         Spacer(Modifier.height(6.dp))
@@ -552,7 +590,8 @@ fun MatchCard(
                             isSwapMode = isSwapMode,
                             isSelected = isSwapSelected,
                             onSwapClick = { onSwapSelect(false) },
-                            color = Color(0xFF2C2C2C)
+                            color = Color(0xFF2C2C2C),
+                            score = blackPlayer?.id?.let { scores[it] }?.let { formatScore(it) }
                         )
                     } else {
                         Spacer(Modifier.height(6.dp))
@@ -614,7 +653,8 @@ fun PlayerRow(
     isSwapMode: Boolean,
     isSelected: Boolean,
     onSwapClick: () -> Unit,
-    color: Color
+    color: Color,
+    score: String? = null
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         // Color indicator circle
@@ -628,19 +668,36 @@ fun PlayerRow(
 
         Spacer(Modifier.width(8.dp))
 
-        Column {
-            Text(
-                player?.name ?: "???",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
-            )
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    player?.name ?: "???",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                if (score != null) {
+                    Spacer(Modifier.width(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            score,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
             player?.rating?.let {
                 Text("$it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 
         if (isSwapMode) {
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(4.dp))
             IconButton(
                 onClick = onSwapClick,
                 modifier = Modifier.size(48.dp)

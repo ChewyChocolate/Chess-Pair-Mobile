@@ -1,13 +1,84 @@
-*.iml
-.gradle
-/local.properties
-/.idea
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
-release.keystore
-.kotlin/
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files / build folders
+bin/
+gen/
+out/
+build/
+app/build/
+*/build/
+
+# Gradle files & caches
+.gradle/
+.gradletasknamecache
+gradle-app.setting
 gradle/gradle-daemon-jvm.properties
+
+# Gradle Wrapper - DO NOT ignore jar & properties
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Local configuration file (sdk path, secrets, etc.)
+local.properties
+secrets.properties
+*.env
+
+# Proguard / R8 folder
+proguard/
+
+# Log files
+*.log
+
+# Keystore files & credentials
+*.jks
+*.keystore
+*.key
+*.p12
+*.pem
+*.pk8
+release.keystore
+debug.keystore
+
+# Google Services (Firebase credentials)
+# google-services.json
+
+# External native build folder
+.externalNativeBuild/
+.cxx/
+cmake-build-*/
+
+# Android Profiler & captures
+captures/
+*.captures
+
+# Kotlin & KSP caches
+.kotlin/
+.ksp/
+
+# IntelliJ IDEA / Android Studio
+*.iml
+.idea/
+*.ipr
+*.iws
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+*.swp
+*.swo

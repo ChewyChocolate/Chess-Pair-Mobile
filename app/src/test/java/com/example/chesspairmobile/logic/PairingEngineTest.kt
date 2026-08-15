@@ -222,24 +222,27 @@ class PairingEngineTest {
     @Test
     fun `generateRoundRobin with avoidClubPairings issues a bye when same-club pair is forced`() {
         // With 4 players (p1=A, p2=A, p3=B, p4=C), the standard rotation forces
-        // p1 and p2 to play each other in round 3. With avoidClubPairings, that
-        // round should produce a bye instead.
+        // p1 and p2 to play each other in round 3. With avoidClubPairings the engine
+        // should either swap opponents to avoid the club clash or issue BYEs — but never
+        // pair same-club players and never drop a player.
         val players = listOf(
             player("p1").copy(club = "A"),
             player("p2").copy(club = "A"),
             player("p3").copy(club = "B"),
             player("p4").copy(club = "C")
         )
-        val allRounds = (1..3).flatMap { generateRoundRobin(players, round = it, avoidClubPairings = true) }
-        val realMatches = allRounds.filter { it.blackId != null }
-        // No real match should pair two same-club players
-        realMatches.forEach { m ->
-            val w = players.first { it.id == m.whiteId }
-            val b = players.first { it.id == m.blackId }
-            assertFalse("Same-club pair: $w vs $b", w.club == b.club)
+        for (round in 1..3) {
+            val matches = generateRoundRobin(players, round = round, avoidClubPairings = true)
+            val realMatches = matches.filter { it.blackId != null }
+            realMatches.forEach { m ->
+                val w = players.first { it.id == m.whiteId }
+                val b = players.first { it.id == m.blackId }
+                assertFalse("Same-club pair in round $round: $w vs $b", w.club == b.club)
+            }
+            // Every round must cover all 4 players (either via match or BYE), never drop one
+            val covered = matches.flatMap { listOfNotNull(it.whiteId, it.blackId) }.toSet()
+            assertEquals("Round $round should cover all 4 players", 4, covered.size)
         }
-        // A bye must have been issued in at least one round
-        assertTrue(allRounds.any { it.result == MatchResult.BYE })
     }
 
     @Test
