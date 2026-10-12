@@ -48,6 +48,7 @@ class Converters {
         return try {
             val type = object : TypeToken<List<String>>() {}.type
             val names: List<String> = gson.fromJson(value, type) ?: return defaultTiebreaks
+            if (names.isEmpty()) return emptyList()
             names.mapNotNull { try { TiebreakType.valueOf(it) } catch (_: Exception) { null } }
                 .ifEmpty { defaultTiebreaks }
         } catch (_: Exception) {
@@ -136,6 +137,20 @@ data class TournamentEntity(
 
 @Dao
 interface TournamentDao {
+    @Query("SELECT * FROM players")
+    suspend fun getAllPlayers(): List<PlayerEntity>
+    @Query("SELECT * FROM teams")
+    suspend fun getAllTeams(): List<TeamEntity>
+    @Query("SELECT * FROM matches")
+    suspend fun getAllMatches(): List<MatchEntity>
+    @Query("DELETE FROM matches")
+    suspend fun deleteAllMatches()
+    @Query("DELETE FROM teams")
+    suspend fun deleteAllTeams()
+    @Query("DELETE FROM players")
+    suspend fun deleteAllPlayers()
+    @Query("DELETE FROM tournaments")
+    suspend fun deleteAllTournaments()
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTournament(tournament: TournamentEntity)
 
@@ -247,7 +262,7 @@ abstract class AppDatabase : RoomDatabase() {
         // swissExtraRound, and accelerationMode to the tournaments table.
         // The columns are nullable or have defaults so we can safely ALTER
         // TABLE without losing existing rows.
-        private val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+        internal val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE tournaments ADD COLUMN liveBroadcastUrl TEXT")
                 db.execSQL("ALTER TABLE tournaments ADD COLUMN forcedPairings TEXT NOT NULL DEFAULT '[]'")

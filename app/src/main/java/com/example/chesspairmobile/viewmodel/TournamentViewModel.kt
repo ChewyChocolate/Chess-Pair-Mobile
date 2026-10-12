@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
+import androidx.room.withTransaction
 import com.example.chesspairmobile.data.db.*
 import com.example.chesspairmobile.data.models.*
 import com.example.chesspairmobile.logic.*
@@ -22,6 +23,9 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     private val db = AppDatabase.getInstance(application)
     private val dao = db.tournamentDao()
     private val converters = Converters()
+    private val _messages = MutableSharedFlow<String>()
+    val messages = _messages.asSharedFlow()
+    private fun notifyUser(message: String) { viewModelScope.launch { _messages.emit(message) } }
 
     private val _tournaments = MutableStateFlow<List<TournamentEntity>>(emptyList())
     val tournaments: StateFlow<List<TournamentEntity>> = _tournaments.asStateFlow()
@@ -55,7 +59,12 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         // Observe all tournaments reactively so the home screen updates when
         // tournaments are created, renamed, or deleted from any path.
         viewModelScope.launch {
-            dao.observeAllTournaments().collect { _tournaments.value = it }
+            dao.observeAllTournaments().collect {
+                _tournaments.value = it
+                if (_activeTournamentId.value != null && it.none { t -> t.id == _activeTournamentId.value }) {
+                    setActiveTournament(null)
+                }
+            }
         }
     }
 
@@ -65,6 +74,12 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         teamsJob?.cancel()
         matchesJob?.cancel()
         _activeTournamentId.value = id
+        _players.value = emptyList()
+        _teams.value = emptyList()
+        _matches.value = emptyList()
+        _modelPlayers.value = emptyList()
+        _modelTeams.value = emptyList()
+        _modelMatches.value = emptyList()
         if (id != null) {
             // Subscribe to per-tournament flows; cancellation in setActiveTournament
             // ensures we don't leak collectors across tournament switches.
@@ -190,6 +205,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
 
     fun addPlayer(name: String, rating: Int? = null, title: String? = null, club: String? = null) {
         if (!requireStatus(TournamentStatus.SETUP, TournamentStatus.ACTIVE)) return
+        if (getActiveTournament()?.let { it.isTeamTournament && it.status == "ACTIVE" } == true) return
         val tid = _activeTournamentId.value ?: return
         val p = PlayerEntity(
             id = UUID.randomUUID().toString(),
@@ -205,37 +221,28 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         )
         viewModelScope.launch {
             dao.insertPlayer(p)
+            _messages.emit("${p.name} added")
         }
     }
 
     fun bulkAddPlayers(csvData: String) {
         if (!requireStatus(TournamentStatus.SETUP)) return
         val tid = _activeTournamentId.value ?: return
-        val newPlayers = csvData.lines()
-            .mapNotNull { line ->
-                val parts = line.split(",").map { it.trim() }
-                if (parts.isEmpty() || parts[0].isBlank()) return@mapNotNull null
-                PlayerEntity(
-                    id = UUID.randomUUID().toString(),
-                    tournamentId = tid,
-                    name = parts[0],
-                    rating = parts.getOrNull(1)?.toIntOrNull(),
-                    title = parts.getOrNull(2)?.takeIf { it.isNotBlank() },
-                    club = parts.getOrNull(3)?.takeIf { it.isNotBlank() },
-                    active = true,
-                    withdrawn = false,
-                    requestedByes = "[]",
-                    penaltyPoints = 0.0
-                )
-            }
-        if (newPlayers.isNotEmpty()) {
-            viewModelScope.launch {
-                dao.insertPlayers(newPlayers)
-            }
+        val preview = previewPlayerImport(csvData, _players.value.map { it.name })
+        if (preview.errors.isNotEmpty()) { notifyUser("Review import errors before adding players"); return }
+        val newPlayers = preview.players.map { player ->
+            PlayerEntity(id = UUID.randomUUID().toString(), tournamentId = tid, name = player.name,
+                rating = player.rating, title = player.title, club = player.club,
+                active = true, withdrawn = false, requestedByes = "[]", penaltyPoints = 0.0)
+        }
+        if (newPlayers.isNotEmpty()) viewModelScope.launch {
+            dao.insertPlayers(newPlayers)
+            _messages.emit("${newPlayers.size} players imported · ${preview.duplicates} duplicates skipped")
         }
     }
-
     fun updatePlayer(player: PlayerEntity) {
+        if (!requireStatus(TournamentStatus.SETUP, TournamentStatus.ACTIVE)) return
+        if (getActiveTournament()?.let { it.isTeamTournament && it.status == "ACTIVE" } == true) return
         val tid = _activeTournamentId.value ?: return
         viewModelScope.launch {
             dao.updatePlayer(player)
@@ -246,8 +253,14 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         if (!requireStatus(TournamentStatus.SETUP)) return
         val tid = _activeTournamentId.value ?: return
         viewModelScope.launch {
-            dao.deletePlayer(id)
-            dao.deleteMatchesByPlayer(tid, id)
+            db.withTransaction {
+                dao.deletePlayer(id)
+                dao.deleteMatchesByPlayer(tid, id)
+                dao.getTeamsByTournament(tid).forEach { team ->
+                    dao.updateTeam(team.copy(playerIds = converters.fromStringList(converters.toStringList(team.playerIds).filterNot { it == id })))
+                }
+            }
+            _messages.emit("Player removed")
         }
     }
 
@@ -255,19 +268,24 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         if (!requireStatus(TournamentStatus.SETUP)) return
         val tid = _activeTournamentId.value ?: return
         viewModelScope.launch {
-            dao.deletePlayersByTournament(tid)
-            dao.deleteMatchesByTournament(tid)
+            db.withTransaction {
+                dao.deletePlayersByTournament(tid)
+                dao.deleteMatchesByTournament(tid)
+                dao.getTeamsByTournament(tid).forEach { dao.updateTeam(it.copy(playerIds = "[]")) }
+            }
             _players.value = emptyList()
             _matches.value = emptyList()
         }
     }
 
     fun withdrawPlayer(id: String) {
+        if (!requireStatus(TournamentStatus.SETUP, TournamentStatus.ACTIVE)) return
         val player = _players.value.find { it.id == id } ?: return
         updatePlayer(player.copy(withdrawn = true))
     }
 
     fun rejoinPlayer(id: String) {
+        if (!requireStatus(TournamentStatus.SETUP, TournamentStatus.ACTIVE)) return
         val player = _players.value.find { it.id == id } ?: return
         updatePlayer(player.copy(withdrawn = false))
     }
@@ -289,6 +307,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun assignPlayerToTeam(teamId: String, playerId: String) {
+        if (!requireStatus(TournamentStatus.SETUP)) return
+        if (_players.value.none { it.id == playerId && it.active && !it.withdrawn }) return
         val team = _teams.value.find { it.id == teamId } ?: return
         val ids = converters.toStringList(team.playerIds).toMutableList()
         // Prevent duplicate assignment or cross-team assignment
@@ -301,10 +321,22 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun updateTeam(team: TeamEntity) {
+        if (!requireStatus(TournamentStatus.SETUP)) return
         val tid = _activeTournamentId.value ?: return
         viewModelScope.launch {
             dao.updateTeam(team)
         }
+    }
+
+    fun moveTeamPlayer(teamId: String, playerId: String, offset: Int) {
+        if (!requireStatus(TournamentStatus.SETUP)) return
+        val team = _teams.value.find { it.id == teamId } ?: return
+        val ids = converters.toStringList(team.playerIds).toMutableList()
+        val from = ids.indexOf(playerId)
+        val to = from + offset
+        if (from < 0 || to !in ids.indices) return
+        java.util.Collections.swap(ids, from, to)
+        updateTeam(team.copy(playerIds = converters.fromStringList(ids)))
     }
 
     // ---- Tournament lifecycle ----
@@ -312,6 +344,10 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     fun startTournament() {
         val t = getActiveTournament() ?: return
         if (t.status != TournamentStatus.SETUP.name) return
+        startRequirement(getTournamentPlayers(), getTournamentTeams(), t.isTeamTournament)?.let {
+            notifyUser(it)
+            return
+        }
         var totalRounds = t.totalRounds
         val count = if (t.isTeamTournament) {
             _teams.value.count { converters.toStringList(it.playerIds).isNotEmpty() }
@@ -336,6 +372,10 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
             }
         }
 
+        startRequirement(getTournamentPlayers(), getTournamentTeams(), t.isTeamTournament, totalRounds)?.let {
+            notifyUser(it)
+            return
+        }
         val updated = t.copy(
             status = TournamentStatus.ACTIVE.name,
             currentRound = 1,
@@ -349,6 +389,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     fun generatePairings(round: Int) {
         val t = getActiveTournament() ?: return
         if (t.status != TournamentStatus.ACTIVE.name) return
+        if (round != t.currentRound || _matches.value.any { it.round == round }) return
         val players = getTournamentPlayers()
         val matches = getTournamentMatches()
         val tournamentType = TournamentType.valueOf(t.type)
@@ -392,8 +433,10 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun updateMatchResult(matchId: String, result: MatchResult?) {
+    fun updateMatchResult(matchId: String, result: MatchResult?, correctionRound: Int? = null) {
+        val t = getActiveTournament() ?: return
         val match = _matches.value.find { it.id == matchId } ?: return
+        if (!canUpdateResult(t.status, t.currentRound, match.round, correctionRound)) return
         updateMatch(match.copy(result = result?.name))
     }
 
@@ -416,6 +459,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
 
         // Guard: all matches must have results (both regular and bye/manual matches)
         val roundMatches = _matches.value.filter { it.round == t.currentRound }
+        if (roundMatches.isEmpty()) return
         val incomplete = roundMatches.any { m -> m.result == null }
         if (incomplete) return
 
@@ -447,9 +491,12 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun swapPlayers(matchId1: String, isWhite1: Boolean, matchId2: String, isWhite2: Boolean) {
+        val tournament = getActiveTournament() ?: return
+        if (tournament.status != "ACTIVE" || tournament.isTeamTournament) return
         val tid = _activeTournamentId.value ?: return
         val m1 = _matches.value.find { it.id == matchId1 } ?: return
         val m2 = _matches.value.find { it.id == matchId2 } ?: return
+        if (m1.round != tournament.currentRound || m2.round != tournament.currentRound || m1.result != null || m2.result != null) return
 
         if (m1.blackId == null || m2.blackId == null) return
         val p1Id = if (isWhite1) m1.whiteId else m1.blackId
@@ -586,6 +633,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
 
     // ---- Forced pairings ----
     fun addForcedPairing(whiteId: String, blackId: String) {
+        if (!requireStatus(TournamentStatus.SETUP, TournamentStatus.ACTIVE)) return
         val t = getActiveTournament() ?: return
         val current = t.forcedPairings
         val fps = converters.toStringList(current).toMutableList()
@@ -594,6 +642,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun clearForcedPairings() {
+        if (!requireStatus(TournamentStatus.SETUP, TournamentStatus.ACTIVE)) return
         val t = getActiveTournament() ?: return
         updateTournament(t.copy(forcedPairings = "[]"))
     }
@@ -637,33 +686,15 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     )
 
     // ---- Standings CSV export ----
-    fun exportStandingsCsv(): String {
+    fun exportStandingsCsv(round: Int? = null, teamView: Boolean? = null): String {
         val t = getActiveTournament() ?: return ""
-        val ps = getTournamentPlayers()
-        val ms = getTournamentMatches()
-        val standings = calculateStandings(
-            ps, ms,
+        val throughRound = (round ?: t.currentRound).coerceIn(0, t.currentRound)
+        return standingsCsv(
+            getTournamentPlayers(), getTournamentTeams(), getTournamentMatches(), throughRound,
             t.pointsForWin, t.pointsForDraw, t.pointsForLoss,
-            converters.toTiebreakList(t.tiebreakOrder)
+            converters.toTiebreakList(t.tiebreakOrder), teamView ?: t.isTeamTournament
         )
-        val sb = StringBuilder()
-        sb.append("Rank,Name,Rating,Score,Buchholz,MedianBuchholz,BuchholzCut1,SonnebornBerger,MostWins,Progressive,Performance\n")
-        standings.forEachIndexed { idx, s ->
-            sb.append(idx + 1).append(",")
-            sb.append("\"${s.player.name.replace("\"", "\"\"")}\"").append(",")
-            sb.append(s.player.rating ?: "").append(",")
-            sb.append(s.score).append(",")
-            sb.append(s.buchholz).append(",")
-            sb.append(s.medianBuchholz).append(",")
-            sb.append(s.buchholzCut1).append(",")
-            sb.append(s.sonnebornBerger).append(",")
-            sb.append(s.mostWins).append(",")
-            sb.append(s.progressive).append(",")
-            sb.append(s.performanceRating).append("\n")
-        }
-        return sb.toString()
     }
-
     // ---- Team pairing helpers ----
 
     private fun generateTeamSwiss(teams: List<Team>, matches: List<Match>, round: Int): List<Match> {

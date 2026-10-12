@@ -325,81 +325,44 @@ fun generateKnockout(players: List<Player>, matches: List<Match>, round: Int): L
 }
 
 fun calculateTeamScores(
-    teams: List<Team>,
-    matches: List<Match>,
-    upToRound: Int? = null
+    teams: List<Team>, matches: List<Match>, upToRound: Int? = null
 ): Pair<MutableMap<String, Double>, MutableMap<String, Double>> {
-    // Returns (teamMatchPoints, teamGamePoints)
-    val teamMatchPoints = mutableMapOf<String, Double>()
-    val teamGamePoints = mutableMapOf<String, Double>()
-
-    teams.forEach { t ->
-        teamMatchPoints[t.id] = 0.0
-        teamGamePoints[t.id] = 0.0
-    }
-
-    val matchesToProcess = if (upToRound != null) matches.filter { it.round <= upToRound } else matches
-
-    val teamMatchesByRound = mutableMapOf<Int, MutableMap<String, MutableList<Match>>>()
-    matchesToProcess.forEach { m ->
-        if (m.teamMatchId == null || m.result == null) return@forEach
-        teamMatchesByRound
-            .getOrPut(m.round) { mutableMapOf() }
-            .getOrPut(m.teamMatchId) { mutableListOf() }
-            .add(m)
-    }
-
-    teamMatchesByRound.values.forEach { roundMatches ->
-        roundMatches.values.forEach { teamMatches ->
-            val firstMatch = teamMatches.firstOrNull() ?: return@forEach
-            var teamA: String? = null
-            var teamB: String? = null
-            var isBye = false
-
-            if (firstMatch.result == MatchResult.BYE) {
-                isBye = true
-                teamA = teams.find { it.playerIds.contains(firstMatch.whiteId) }?.id
-            } else {
-                teamA = teams.find { it.playerIds.contains(firstMatch.whiteId!!) }?.id
-                teamB = firstMatch.blackId?.let { bid -> teams.find { it.playerIds.contains(bid) }?.id }
-            }
-
-            if (isBye && teamA != null) {
-                teamMatchPoints[teamA] = (teamMatchPoints[teamA] ?: 0.0) + 2.0
-                return@forEach
-            }
-
-            if (teamA != null && teamB != null) {
-                var teamAGP = 0.0
-                var teamBGP = 0.0
-                teamMatches.forEach { m ->
-                    val isTeamAWhite = teams.find { it.id == teamA }?.playerIds?.contains(m.whiteId) == true
-                    when (m.result) {
-                        MatchResult.WHITE_WIN -> if (isTeamAWhite) teamAGP++ else teamBGP++
-                        MatchResult.BLACK_WIN -> if (isTeamAWhite) teamBGP++ else teamAGP++
-                        MatchResult.DRAW -> { teamAGP += 0.5; teamBGP += 0.5 }
-                        MatchResult.FORFEIT_WHITE -> if (isTeamAWhite) teamBGP++ else teamAGP++
-                        MatchResult.FORFEIT_BLACK -> if (isTeamAWhite) teamAGP++ else teamBGP++
-                        MatchResult.BYE -> {}
-                        null -> {}
-                    }
+    val matchPoints = teams.associate { it.id to 0.0 }.toMutableMap()
+    val gamePoints = teams.associate { it.id to 0.0 }.toMutableMap()
+    val playerTeam = teams.flatMap { team -> team.playerIds.map { it to team.id } }.toMap()
+    matches.filter { it.teamMatchId != null && (upToRound == null || it.round <= upToRound) }
+        .groupBy { it.round to it.teamMatchId }.values.forEach { boards ->
+            val teamIds = boards.flatMap { listOfNotNull(playerTeam[it.whiteId], playerTeam[it.blackId]) }.distinct()
+            val points = teamIds.associateWith { 0.0 }.toMutableMap()
+            boards.forEach { board ->
+                fun add(playerId: String?, score: Double) {
+                    val teamId = playerTeam[playerId] ?: return
+                    points[teamId] = (points[teamId] ?: 0.0) + score
                 }
-                teamGamePoints[teamA] = (teamGamePoints[teamA] ?: 0.0) + teamAGP
-                teamGamePoints[teamB] = (teamGamePoints[teamB] ?: 0.0) + teamBGP
-
-                if (teamAGP > teamBGP) teamMatchPoints[teamA] = (teamMatchPoints[teamA] ?: 0.0) + 2.0
-                else if (teamBGP > teamAGP) teamMatchPoints[teamB] = (teamMatchPoints[teamB] ?: 0.0) + 2.0
-                else {
-                    teamMatchPoints[teamA] = (teamMatchPoints[teamA] ?: 0.0) + 1.0
-                    teamMatchPoints[teamB] = (teamMatchPoints[teamB] ?: 0.0) + 1.0
+                when (board.result) {
+                    MatchResult.WHITE_WIN, MatchResult.FORFEIT_BLACK, MatchResult.BYE -> add(board.whiteId, 1.0)
+                    MatchResult.BLACK_WIN, MatchResult.FORFEIT_WHITE -> add(board.blackId, 1.0)
+                    MatchResult.DRAW -> { add(board.whiteId, 0.5); add(board.blackId, 0.5) }
+                    null -> Unit
                 }
+            }
+            points.forEach { (teamId, score) -> gamePoints[teamId] = (gamePoints[teamId] ?: 0.0) + score }
+            // Board scores are provisional; award match points only when every board is settled.
+            if (boards.any { it.result == null }) return@forEach
+            if (teamIds.size == 1 && boards.all { it.result == MatchResult.BYE }) {
+                val id = teamIds.single()
+                matchPoints[id] = (matchPoints[id] ?: 0.0) + 2.0
+            } else if (teamIds.size == 2) {
+                val a = teamIds[0]
+                val b = teamIds[1]
+                val aScore = points[a] ?: 0.0
+                val bScore = points[b] ?: 0.0
+                matchPoints[a] = (matchPoints[a] ?: 0.0) + if (aScore > bScore) 2.0 else if (aScore == bScore) 1.0 else 0.0
+                matchPoints[b] = (matchPoints[b] ?: 0.0) + if (bScore > aScore) 2.0 else if (aScore == bScore) 1.0 else 0.0
             }
         }
-    }
-
-    return teamMatchPoints to teamGamePoints
+    return matchPoints to gamePoints
 }
-
 // ---- Acceleration ----
 
 fun applyAcceleration(players: List<Player>, mode: AccelerationMode): List<Player> {

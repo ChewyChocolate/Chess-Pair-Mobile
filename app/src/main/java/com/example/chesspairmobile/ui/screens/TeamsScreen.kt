@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -21,28 +22,40 @@ import com.google.gson.reflect.TypeToken
 fun TeamsScreen(
     teams: List<TeamEntity>,
     players: List<PlayerEntity>,
+    tournamentStatus: String = "SETUP",
+    onShowPlayers: () -> Unit = {},
     onAddTeam: (String) -> Unit,
     onAssignPlayer: (String, String) -> Unit,
+    onMovePlayer: (String, String, Int) -> Unit = { _, _, _ -> },
     onRemoveFromTeam: (String, String) -> Unit = { _, _ -> }
 ) {
-    var showAddDialog by remember { mutableStateOf(false) }
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    val canEdit = tournamentStatus == "SETUP"
     val gson = remember { Gson() }
     val typeToken = remember { object : TypeToken<List<String>>() {}.type }
 
     val totalPlayers = players.count { it.active && !it.withdrawn }
-    val assignedCount = teams.sumOf { team ->
-        (try { gson.fromJson<List<String>>(team.playerIds, typeToken) ?: emptyList() } catch (_: Exception) { emptyList<String>() }).size
-    }
+    val assignedIds = teams.flatMap { team ->
+        try { gson.fromJson<List<String>>(team.playerIds, typeToken) ?: emptyList() } catch (_: Exception) { emptyList<String>() }
+    }.toSet()
+    val assignedCount = players.count { it.active && !it.withdrawn && it.id in assignedIds }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAddDialog = true }) {
+            if (canEdit) ExtendedFloatingActionButton(onClick = { showAddDialog = true }) {
                 Icon(Icons.Default.GroupAdd, "Add Team")
+                Spacer(Modifier.width(8.dp))
+                Text("Add team")
             }
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
+            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = false, onClick = onShowPlayers, label = { Text("Players") })
+                FilterChip(selected = true, onClick = {}, label = { Text("Teams") })
+            }
+            if (!canEdit) Text("Team rosters are locked after starting", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium)
             // Title row
             Text(
                 "Teams (${teams.size})",
@@ -84,6 +97,8 @@ fun TeamsScreen(
                             team = team,
                             players = players,
                             allTeams = teams,
+                            canEdit = canEdit,
+                            onMovePlayer = { playerId, offset -> onMovePlayer(team.id, playerId, offset) },
                             onAssignPlayer = { playerId -> onAssignPlayer(team.id, playerId) },
                             onRemovePlayer = { playerId -> onRemoveFromTeam(team.id, playerId) }
                         )
@@ -110,7 +125,9 @@ fun TeamCard(
     team: TeamEntity,
     players: List<PlayerEntity>,
     allTeams: List<TeamEntity>,
+    canEdit: Boolean = true,
     onAssignPlayer: (String) -> Unit,
+    onMovePlayer: (String, Int) -> Unit = { _, _ -> },
     onRemovePlayer: (String) -> Unit
 ) {
     val gson = remember { Gson() }
@@ -121,7 +138,7 @@ fun TeamCard(
         } catch (e: Exception) { emptyList() }
     }
 
-    val assignedPlayers = players.filter { p -> teamPlayerIds.contains(p.id) }
+    val assignedPlayers = teamPlayerIds.mapNotNull { id -> players.find { it.id == id } }
     val allAssignedPlayerIds = remember(allTeams, players) {
         allTeams.flatMap { t ->
             try {
@@ -135,6 +152,7 @@ fun TeamCard(
     }
 
     var showAssignDropdown by remember { mutableStateOf(false) }
+    var assignSearch by remember { mutableStateOf("") }
 
     Card(
         modifier = Modifier
@@ -162,7 +180,7 @@ fun TeamCard(
                     color = fillColor.copy(alpha = 0.12f)
                 ) {
                     Text(
-                        "${teamPlayerIds.size}P",
+                        "${teamPlayerIds.size} players",
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         color = fillColor
@@ -189,24 +207,24 @@ fun TeamCard(
                         )
                     }
                     Spacer(Modifier.width(10.dp))
-                    Text(player.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(player.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                     player.rating?.let {
                         Spacer(Modifier.width(6.dp))
                         Text("$it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Spacer(Modifier.weight(1f))
-                    IconButton(
-                        onClick = { onRemovePlayer(player.id) },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(Icons.Default.RemoveCircleOutline, "Remove from team",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
+                    if (canEdit) Box {
+                        var menu by remember(player.id) { mutableStateOf(false) }
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Board actions for ${player.name}") }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(text = { Text("Move up") }, enabled = index > 0, onClick = { onMovePlayer(player.id, -1); menu = false })
+                            DropdownMenuItem(text = { Text("Move down") }, enabled = index < assignedPlayers.lastIndex, onClick = { onMovePlayer(player.id, 1); menu = false })
+                            DropdownMenuItem(text = { Text("Remove from team") }, onClick = { onRemovePlayer(player.id); menu = false })
+                        }
                     }
                 }
             }
 
-            if (unassignedPlayers.isNotEmpty()) {
+            if (canEdit && unassignedPlayers.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Box {
                     OutlinedButton(
@@ -217,33 +235,23 @@ fun TeamCard(
                         Spacer(Modifier.width(6.dp))
                         Text("Assign Player (${unassignedPlayers.size} available)")
                     }
-                    DropdownMenu(
-                        expanded = showAssignDropdown,
-                        onDismissRequest = { showAssignDropdown = false }
-                    ) {
-                        unassignedPlayers.forEach { player ->
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(player.name)
-                                        player.rating?.let {
-                                            Spacer(Modifier.width(8.dp))
-                                            Text("$it", style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    }
-                                },
-                                onClick = {
-                                    onAssignPlayer(player.id)
-                                    showAssignDropdown = false
-                                }
-                            )
-                        }
-                    }
                 }
             }
         }
     }
+    if (showAssignDropdown) AlertDialog(onDismissRequest = { showAssignDropdown = false }, title = { Text("Assign player to ${team.name}") },
+        text = { Column {
+            OutlinedTextField(value = assignSearch, onValueChange = { assignSearch = it }, label = { Text("Search available players") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            val available = unassignedPlayers.filter { it.name.contains(assignSearch, true) }
+            LazyColumn(Modifier.heightIn(max = 280.dp)) {
+                items(available, key = { it.id }) { player ->
+                    TextButton(modifier = Modifier.fillMaxWidth(), onClick = { onAssignPlayer(player.id); showAssignDropdown = false; assignSearch = "" }) {
+                        Text("${player.name}${player.rating?.let { " · $it" } ?: ""}")
+                    }
+                }
+                if (available.isEmpty()) item { Text("No players match", Modifier.padding(16.dp)) }
+            }
+        } }, confirmButton = { TextButton(onClick = { showAssignDropdown = false }) { Text("Done") } })
 }
 
 @Composable
@@ -251,7 +259,7 @@ fun AddTeamDialog(
     onDismiss: () -> Unit,
     onAdd: (String) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
+    var name by rememberSaveable { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,

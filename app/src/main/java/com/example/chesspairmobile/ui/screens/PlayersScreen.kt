@@ -2,6 +2,8 @@ package com.example.chesspairmobile.ui.screens
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
@@ -10,6 +12,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.example.chesspairmobile.logic.parseByeRounds
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -24,11 +28,14 @@ import androidx.compose.ui.unit.dp
 import com.example.chesspairmobile.data.db.PlayerEntity
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayersScreen(
     players: List<PlayerEntity>,
+    isTeamTournament: Boolean = false,
+    onShowTeams: () -> Unit = {},
     tournamentStatus: String,
     tournamentRound: Int,
     tournamentTotalRounds: Int = 0,
@@ -40,13 +47,13 @@ fun PlayersScreen(
     onClearPlayers: () -> Unit,
     onUpdatePlayer: (PlayerEntity) -> Unit = {}
 ) {
-    var showAddDialog by remember { mutableStateOf(false) }
-    var showBulkDialog by remember { mutableStateOf(false) }
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    var showBulkDialog by rememberSaveable { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     val isSetup = tournamentStatus == "SETUP"
     val isActive = tournamentStatus == "ACTIVE"
-    val canEdit = isSetup || isActive
+    val canEdit = isSetup || (isActive && !isTeamTournament)
 
     val filteredPlayers = remember(players, searchQuery) {
         if (searchQuery.isBlank()) players
@@ -61,25 +68,33 @@ fun PlayersScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
             if (canEdit) {
-                FloatingActionButton(onClick = { showAddDialog = true }) {
+                ExtendedFloatingActionButton(onClick = { showAddDialog = true }) {
                     Icon(Icons.Default.PersonAdd, "Add Player")
+                    Spacer(Modifier.width(8.dp))
+                    Text("Add player")
                 }
             }
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
+            if (isTeamTournament) {
+                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = true, onClick = {}, label = { Text("Players") })
+                    FilterChip(selected = false, onClick = onShowTeams, label = { Text("Teams") })
+                }
+            }
             // Title row
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Players (${players.size})", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                TextButton(onClick = { showBulkDialog = true }) {
+                if (isSetup) TextButton(onClick = { showBulkDialog = true }) {
                     Icon(Icons.Default.FileUpload, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Import")
                 }
-                if (players.isNotEmpty()) {
+                if (isSetup && players.isNotEmpty()) {
                     IconButton(onClick = { showClearConfirm = true }) {
                         Icon(Icons.Default.DeleteForever, "Clear All")
                     }
@@ -90,9 +105,6 @@ fun PlayersScreen(
                 SearchAddBar(
                     searchQuery = searchQuery,
                     onSearchChange = { searchQuery = it },
-                    onAdd = { name -> onAddPlayer(name, null, null, null) },
-                    canAdd = canEdit,
-                    showCount = players.size >= 8
                 )
                 if (searchQuery.isNotBlank() && players.size >= 8) {
                     Text(
@@ -104,14 +116,14 @@ fun PlayersScreen(
                 }
                 HorizontalDivider()
             }
-            if (!canEdit && players.size < 8) {
+            if (!canEdit) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(Icons.Default.Lock, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(8.dp))
-                    Text("Tournament is completed — roster is locked", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (isActive) "Team rosters are locked after starting" else "Tournament is completed — roster is locked", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider()
             }
@@ -129,7 +141,7 @@ fun PlayersScreen(
                         Text("No players added yet", style = MaterialTheme.typography.bodyLarge)
                         if (canEdit) {
                             Spacer(Modifier.height(4.dp))
-                            Text("Type a name above or tap + to add", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Tap Add player to enter your roster", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -164,6 +176,7 @@ fun PlayersScreen(
 
     if (showBulkDialog) {
         BulkImportDialog(
+            existingNames = players.map { it.name },
             onDismiss = { showBulkDialog = false },
             onImport = { csv ->
                 onBulkAdd(csv)
@@ -191,195 +204,75 @@ fun PlayersScreen(
 }
 
 @Composable
-fun SearchAddBar(
-    searchQuery: String,
-    onSearchChange: (String) -> Unit,
-    onAdd: (String) -> Unit,
-    canAdd: Boolean,
-    showCount: Boolean
-) {
-    val focusRequester = remember { FocusRequester() }
-    val isSearching = searchQuery.isNotBlank()
-
-    Surface(modifier = Modifier.fillMaxWidth(), tonalElevation = 1.dp) {
-        if (!canAdd) {
-            // Read-only search bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = onSearchChange,
-                placeholder = { Text("Search players by name, club, or title", style = MaterialTheme.typography.bodyMedium) },
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Search, null) },
-                trailingIcon = {
-                    if (isSearching) {
-                        IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Clear, "Clear search")
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
-            )
-        } else {
-            // Combined search + add bar
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = onSearchChange,
-                    placeholder = { Text("Search or type new name to add", style = MaterialTheme.typography.bodyMedium) },
-                    singleLine = true,
-                    leadingIcon = { Icon(Icons.Default.Search, null) },
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Search),
-                    modifier = Modifier.weight(1f).focusRequester(focusRequester)
-                )
-                Spacer(Modifier.width(8.dp))
-                FilledTonalButton(
-                    onClick = {
-                        val trimmed = searchQuery.trim()
-                        if (trimmed.isNotBlank()) { onAdd(trimmed); onSearchChange(""); focusRequester.requestFocus() }
-                    },
-                    enabled = searchQuery.isNotBlank()
-                ) { Text("Add") }
-            }
-        }
-    }
+fun SearchAddBar(searchQuery: String, onSearchChange: (String) -> Unit) {
+    OutlinedTextField(value = searchQuery, onValueChange = onSearchChange, label = { Text("Search players") },
+        placeholder = { Text("Name, club, or title") }, singleLine = true,
+        leadingIcon = { Icon(Icons.Default.Search, null) },
+        trailingIcon = { if (searchQuery.isNotEmpty()) IconButton(onClick = { onSearchChange("") }) { Icon(Icons.Default.Clear, "Clear search") } },
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp))
 }
-
 @Composable
 fun PlayerCard(
-    player: PlayerEntity,
-    isSetup: Boolean,
-    canEdit: Boolean = isSetup,
-    totalRounds: Int = 0,
-    onRemove: () -> Unit,
-    onWithdraw: () -> Unit,
-    onRejoin: () -> Unit,
-    onUpdatePlayer: (PlayerEntity) -> Unit = {}
+    player: PlayerEntity, isSetup: Boolean, canEdit: Boolean = isSetup, totalRounds: Int = 0,
+    onRemove: () -> Unit, onWithdraw: () -> Unit, onRejoin: () -> Unit, onUpdatePlayer: (PlayerEntity) -> Unit = {}
 ) {
-    var showByeDialog by remember { mutableStateOf(false) }
-    var showEditDialog by remember { mutableStateOf(false) }
-    val gson = remember { Gson() }
-
-    val byeRounds: List<Int> = remember(player.requestedByes) {
-        try {
-            val type = object : TypeToken<List<Int>>() {}.type
-            gson.fromJson(player.requestedByes, type) ?: emptyList()
-        } catch (_: Exception) { emptyList() }
-    }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .then(if (player.withdrawn) Modifier.alpha(0.55f) else Modifier)
-    ) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        player.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        textDecoration = if (player.withdrawn) TextDecoration.LineThrough else TextDecoration.None
-                    )
-                    if (player.withdrawn) {
-                        Spacer(Modifier.width(8.dp))
-                        Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.errorContainer) {
-                            Text("W/D", style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                color = MaterialTheme.colorScheme.onErrorContainer)
-                        }
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    player.rating?.let { Text("Rating: $it", style = MaterialTheme.typography.bodySmall) }
-                    player.title?.let {
-                        Surface(shape = MaterialTheme.shapes.extraSmall, color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)) {
-                            Text(it, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
-                        }
-                    }
-                    player.club?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                }
-                // Requested byes display
-                if (byeRounds.isNotEmpty()) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "Bye rounds: ${byeRounds.joinToString(", ")}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
+    var showByeDialog by rememberSaveable { mutableStateOf(false) }
+    var showEditDialog by rememberSaveable { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    var confirmAction by rememberSaveable { mutableStateOf<String?>(null) }
+    val converters = remember { com.example.chesspairmobile.data.db.Converters() }
+    val byeRounds = remember(player.requestedByes) { converters.toIntList(player.requestedByes) }
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(player.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(listOfNotNull(player.rating?.let { "Rating $it" }, player.title, player.club).joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
+                if (player.withdrawn) Text("Withdrawn", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (byeRounds.isNotEmpty()) Text("Requested byes: ${byeRounds.joinToString()}", style = MaterialTheme.typography.bodyMedium)
             }
-
-            // Action buttons
-            if (isSetup) {
-                IconButton(onClick = { showEditDialog = true }, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.Edit, "Edit player", Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
-                }
-                IconButton(onClick = { showByeDialog = true }, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.EventBusy, "Edit byes", Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
-                }
-            }
-            if (canEdit) {
-                if (player.withdrawn) {
-                    TextButton(onClick = onRejoin) { Text("Rejoin") }
-                } else {
-                    TextButton(onClick = onWithdraw) { Text("Forfeit") }
-                }
-                Spacer(Modifier.width(4.dp))
-                if (isSetup) {
-                    IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Default.Close, "Remove", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
+            if (canEdit) Box {
+                IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "Actions for ${player.name}") }
+                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    if (isSetup) {
+                        DropdownMenuItem(text = { Text("Edit player") }, onClick = { showEditDialog = true; showMenu = false })
+                        DropdownMenuItem(text = { Text("Requested byes") }, onClick = { showByeDialog = true; showMenu = false })
                     }
+                    DropdownMenuItem(text = { Text(if (player.withdrawn) "Rejoin" else "Withdraw") }, onClick = {
+                        showMenu = false
+                        if (player.withdrawn) onRejoin() else confirmAction = "Withdraw"
+                    })
+                    if (isSetup) DropdownMenuItem(text = { Text("Remove player") }, onClick = { confirmAction = "Remove"; showMenu = false })
                 }
             }
         }
     }
-
-    if (showByeDialog) {
-        RequestedByeDialog(
-            byeRounds = byeRounds,
-            totalRounds = totalRounds,
-            onDismiss = { showByeDialog = false },
-            onSave = { newByes ->
-                onUpdatePlayer(player.copy(requestedByes = gson.toJson(newByes)))
-                showByeDialog = false
-            }
-        )
+    confirmAction?.let { action ->
+        AlertDialog(onDismissRequest = { confirmAction = null }, title = { Text("$action ${player.name}?") },
+            text = { Text(if (action == "Withdraw") "They will be excluded from future individual pairings. Existing results stay recorded. You can rejoin them later." else "Remove this player from the roster and any team assignments?") },
+            confirmButton = { TextButton(onClick = { if (action == "Withdraw") onWithdraw() else onRemove(); confirmAction = null }) { Text(action) } },
+            dismissButton = { TextButton(onClick = { confirmAction = null }) { Text("Cancel") } })
     }
-
-    if (showEditDialog) {
-        EditPlayerDialog(
-            player = player,
-            onDismiss = { showEditDialog = false },
-            onSave = { updated ->
-                onUpdatePlayer(updated)
-                showEditDialog = false
-            }
-        )
+    if (showByeDialog) RequestedByeDialog(byeRounds, totalRounds, { showByeDialog = false }) {
+        onUpdatePlayer(player.copy(requestedByes = converters.fromIntList(it))); showByeDialog = false
     }
+    if (showEditDialog) EditPlayerDialog(player, { showEditDialog = false }) { onUpdatePlayer(it); showEditDialog = false }
 }
-
 @Composable
 fun EditPlayerDialog(
     player: PlayerEntity,
     onDismiss: () -> Unit,
     onSave: (PlayerEntity) -> Unit
 ) {
-    var name by remember { mutableStateOf(player.name) }
-    var rating by remember { mutableStateOf(player.rating?.toString() ?: "") }
-    var title by remember { mutableStateOf(player.title ?: "") }
-    var club by remember { mutableStateOf(player.club ?: "") }
+    var name by rememberSaveable { mutableStateOf(player.name) }
+    var rating by rememberSaveable { mutableStateOf(player.rating?.toString() ?: "") }
+    var title by rememberSaveable { mutableStateOf(player.title ?: "") }
+    var club by rememberSaveable { mutableStateOf(player.club ?: "") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit Player") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true)
                 OutlinedTextField(
                     value = rating,
@@ -420,7 +313,8 @@ fun RequestedByeDialog(
     onDismiss: () -> Unit,
     onSave: (List<Int>) -> Unit
 ) {
-    var text by remember { mutableStateOf(byeRounds.joinToString(", ")) }
+    var text by rememberSaveable { mutableStateOf(byeRounds.joinToString(", ")) }
+    val parsedByes = parseByeRounds(text, totalRounds)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -435,6 +329,8 @@ fun RequestedByeDialog(
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = text,
+                    isError = parsedByes == null,
+                    supportingText = { if (parsedByes == null) Text(if (totalRounds > 0) "Use round numbers from 1 to $totalRounds" else "Use positive round numbers separated by commas") },
                     onValueChange = { text = it },
                     placeholder = { Text("e.g. 2, 4") },
                     singleLine = true,
@@ -443,13 +339,8 @@ fun RequestedByeDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                val parsed = text.split(",")
-                    .mapNotNull { it.trim().toIntOrNull() }
-                    .filter { it in 1..maxOf(totalRounds, 99) }
-                    .distinct()
-                    .sorted()
-                onSave(parsed)
+            TextButton(enabled = parsedByes != null, onClick = {
+                parsedByes?.let(onSave)
             }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
@@ -461,10 +352,10 @@ fun AddPlayerDialog(
     onDismiss: () -> Unit,
     onAdd: (String, Int?, String?, String?) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    var rating by remember { mutableStateOf("") }
-    var title by remember { mutableStateOf("") }
-    var club by remember { mutableStateOf("") }
+    var name by rememberSaveable { mutableStateOf("") }
+    var rating by rememberSaveable { mutableStateOf("") }
+    var title by rememberSaveable { mutableStateOf("") }
+    var club by rememberSaveable { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
@@ -473,7 +364,7 @@ fun AddPlayerDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add Player") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = name, onValueChange = { name = it }, label = { Text("Name") },
                     singleLine = true, modifier = Modifier.focusRequester(focusRequester),
@@ -494,6 +385,7 @@ fun AddPlayerDialog(
                 )
                 OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title (optional, e.g. GM, IM)") }, singleLine = true)
                 OutlinedTextField(value = club, onValueChange = { club = it }, label = { Text("Club (optional)") }, singleLine = true)
+                Text("Add & Next keeps rating, title, and club for the next player.", style = MaterialTheme.typography.bodyMedium)
             }
         },
         confirmButton = {
@@ -512,25 +404,46 @@ fun AddPlayerDialog(
 }
 
 @Composable
-fun BulkImportDialog(onDismiss: () -> Unit, onImport: (String) -> Unit) {
-    var csv by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Import Players") },
-        text = {
-            Column {
-                Text("Paste CSV data: Name,Rating,Title,Club", style = MaterialTheme.typography.bodySmall)
-                Text("One player per line", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = csv, onValueChange = { csv = it },
-                    placeholder = { Text("Magnus Carlsen,2830,GM,Norway\nHikaru Nakamura,2790,GM,USA") },
-                    modifier = Modifier.height(200.dp), maxLines = 10
-                )
+fun BulkImportDialog(onDismiss: () -> Unit, onImport: (String) -> Unit, existingNames: List<String> = emptyList()) {
+    var csv by rememberSaveable { mutableStateOf("") }
+    var fileError by remember { mutableStateOf<String?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val filePicker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri: android.net.Uri? ->
+        if (uri != null) scope.launch {
+            try {
+                csv = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val data = ByteArray(64 * 1024 + 1)
+                    var count = 0
+                    requireNotNull(context.contentResolver.openInputStream(uri)).use { input ->
+                        while (count < data.size) {
+                            val read = input.read(data, count, data.size - count)
+                            if (read < 0) break
+                            count += read
+                        }
+                    }
+                    require(count <= 64 * 1024) { "Choose a CSV smaller than 64 KB or import in batches" }
+                    String(data, 0, count, Charsets.UTF_8)
+                }
+                fileError = null
+            } catch (error: Exception) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                fileError = error.message ?: "Cannot read file"
             }
-        },
-        confirmButton = { TextButton(onClick = { onImport(csv) }, enabled = csv.isNotBlank()) { Text("Import") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
+        }
+    }
+    val preview = remember(csv, existingNames) { com.example.chesspairmobile.logic.previewPlayerImport(csv, existingNames) }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Import players") }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Choose a CSV or paste rows: Name,Rating,Title,Club. Duplicate names are skipped.", style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(onClick = { filePicker.launch(arrayOf("text/*", "application/csv", "application/octet-stream")) }) { Text("Choose CSV file") }
+            OutlinedTextField(value = csv, onValueChange = { if (it.length <= 64 * 1024) csv = it }, label = { Text("CSV data") }, modifier = Modifier.fillMaxWidth().height(160.dp), maxLines = 8)
+            fileError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            Text("${preview.players.size} players ready · ${preview.duplicates} duplicates skipped", style = MaterialTheme.typography.bodyMedium)
+            preview.errors.forEach { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+            preview.players.take(5).forEach { Text("${it.name}${it.rating?.let { rating -> " · $rating" } ?: ""}", style = MaterialTheme.typography.bodyMedium) }
+            if (preview.players.size > 5) Text("…and ${preview.players.size - 5} more", style = MaterialTheme.typography.bodyMedium)
+        }
+    }, confirmButton = { TextButton(enabled = preview.players.isNotEmpty() && preview.errors.isEmpty(), onClick = { onImport(csv) }) { Text("Import ${preview.players.size} players") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }

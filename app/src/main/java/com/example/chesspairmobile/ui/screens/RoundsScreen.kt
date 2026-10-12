@@ -22,9 +22,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import com.example.chesspairmobile.data.db.MatchEntity
 import com.example.chesspairmobile.data.db.PlayerEntity
 import com.example.chesspairmobile.data.db.TournamentEntity
+import com.example.chesspairmobile.data.db.TeamEntity
+import com.example.chesspairmobile.data.db.Converters
+import com.example.chesspairmobile.logic.startRequirement
 import com.example.chesspairmobile.data.models.MatchResult
 import com.example.chesspairmobile.logic.calculateScores
 import com.google.gson.Gson
@@ -35,10 +40,12 @@ import com.google.gson.reflect.TypeToken
 fun RoundsScreen(
     tournament: TournamentEntity?,
     players: List<PlayerEntity>,
+    teams: List<TeamEntity> = emptyList(),
+    plannedRounds: Int = 0,
     matches: List<MatchEntity>,
     onStartTournament: () -> Unit,
     onGeneratePairings: (Int) -> Unit,
-    onUpdateResult: (String, MatchResult?) -> Unit,
+    onUpdateResult: (String, MatchResult?, Int?) -> Unit,
     onCompleteRound: () -> Unit,
     onRollbackRound: () -> Unit,
     onSwapPlayers: (String, Boolean, String, Boolean) -> Unit,
@@ -54,16 +61,19 @@ fun RoundsScreen(
         return
     }
 
-    var selectedRound by remember { mutableIntStateOf(tournament.currentRound.coerceAtLeast(1)) }
-    var editingPastRound by remember { mutableStateOf(false) }
+    var selectedRound by remember(tournament.id) { mutableIntStateOf(tournament.currentRound.coerceAtLeast(1)) }
+    var editingPastRound by remember(tournament.id, selectedRound, tournament.status) { mutableStateOf(false) }
+    var showCorrectionConfirm by remember(tournament.id, selectedRound) { mutableStateOf(false) }
     LaunchedEffect(tournament.currentRound) {
         selectedRound = tournament.currentRound.coerceAtLeast(1)
         editingPastRound = false
     }
 
-    var showSwapMode by remember { mutableStateOf(false) }
-    var swapMatch1 by remember { mutableStateOf<MatchEntity?>(null) }
-    var swapColor1 by remember { mutableStateOf<Boolean?>(null) }
+    var showSwapMode by remember(tournament.id, selectedRound, tournament.status) { mutableStateOf(false) }
+    var swapMatch1 by remember(tournament.id, selectedRound) { mutableStateOf<MatchEntity?>(null) }
+    var swapColor1 by remember(tournament.id, selectedRound) { mutableStateOf<Boolean?>(null) }
+    var pendingOnly by remember(tournament.id, selectedRound) { mutableStateOf(false) }
+    var boardSearch by remember(tournament.id) { mutableStateOf("") }
     var showCompleteConfirm by remember { mutableStateOf(false) }
     var showRollbackConfirm by remember { mutableStateOf(false) }
     var showForcedPairingDialog by remember { mutableStateOf(false) }
@@ -76,8 +86,18 @@ fun RoundsScreen(
     val currentRoundMatches = matches.filter { it.round == currentRound }
     val currentRoundHasPairings = currentRoundMatches.isNotEmpty()
     val currentRoundResultsComplete = currentRoundMatches
-        .filter { it.blackId != null }
         .all { it.result != null }
+    val converters = remember { Converters() }
+    val startError = startRequirement(
+        players.map { com.example.chesspairmobile.data.models.Player(id = it.id, name = it.name, active = it.active, withdrawn = it.withdrawn, requestedByes = converters.toIntList(it.requestedByes)) },
+        teams.map { com.example.chesspairmobile.data.models.Team(id = it.id, name = it.name, playerIds = converters.toStringList(it.playerIds)) },
+        tournament.isTeamTournament, plannedRounds
+    )
+    val visibleMatches = roundMatches.filter { match ->
+        (!pendingOnly || match.result == null) &&
+            (boardSearch.isBlank() || match.boardNumber?.toString() == boardSearch.trim() ||
+                players.any { (it.id == match.whiteId || it.id == match.blackId) && it.name.contains(boardSearch, true) })
+    }
 
     // Scores before the selected round (FIDE pairings show score before the round)
     val scoreMap: Map<String, Double> = remember(players, matches, tournament, selectedRound) {
@@ -108,10 +128,24 @@ fun RoundsScreen(
             ).scores
         } catch (_: Exception) { emptyMap() }
     }
-    fun formatScore(v: Double): String = if (v % 1.0 == 0.0) v.toInt().toString() else String.format("%.1f", v)
+    fun formatScore(v: Double): String = if (v % 1.0 == 0.0) v.toInt().toString() else String.format(java.util.Locale.getDefault(), "%.1f", v)
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        bottomBar = {
+            if (isActive && selectedRound == currentRound) Surface(shadowElevation = 4.dp) {
+                Button(modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    enabled = !currentRoundHasPairings || currentRoundResultsComplete,
+                    onClick = { if (!currentRoundHasPairings) onGeneratePairings(currentRound) else showCompleteConfirm = true }) {
+                    Text(when {
+                        !currentRoundHasPairings -> "Generate Round $currentRound pairings"
+                        !currentRoundResultsComplete -> "${currentRoundMatches.count { it.result == null }} results remaining"
+                        currentRound == tournament.totalRounds -> "Review and finish tournament"
+                        else -> "Review and complete Round $currentRound"
+                    })
+                }
+            }
+        }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -126,27 +160,6 @@ fun RoundsScreen(
             ) {
                 Text("Rounds", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Row {
-                    if (isActive) {
-                        TextButton(
-                            onClick = {
-                                if (currentRoundHasPairings && currentRoundResultsComplete) {
-                                    showCompleteConfirm = true
-                                }
-                            },
-                            enabled = currentRoundHasPairings && currentRoundResultsComplete
-                        ) {
-                            Text("Complete Round")
-                        }
-                    }
-                    if (isActive || tournament.status == "COMPLETED") {
-                        IconButton(
-                            onClick = { showRollbackConfirm = true },
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            @Suppress("DEPRECATION")
-                            Icon(Icons.Filled.Undo, "Rollback")
-                        }
-                    }
                     var showMenu by remember { mutableStateOf(false) }
                     IconButton(
                         onClick = { showMenu = true },
@@ -155,13 +168,17 @@ fun RoundsScreen(
                         Icon(Icons.Default.MoreVert, "More")
                     }
                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        if (selectedRound == currentRound && (isActive || tournament.status == "COMPLETED")) {
+                            DropdownMenuItem(text = { Text(if (isActive) "Roll back Round $currentRound" else "Reopen tournament") }, onClick = { showMenu = false; showRollbackConfirm = true })
+                        }
                         DropdownMenuItem(
                             text = { Text("Forced pairings…") },
+                            enabled = isSetup || isActive,
                             onClick = { showMenu = false; showForcedPairingDialog = true }
                         )
                         DropdownMenuItem(
                             text = { Text("Clear forced pairings") },
-                            enabled = !tournament.forcedPairings.isNullOrBlank() && tournament.forcedPairings != "[]",
+                            enabled = (isSetup || isActive) && tournament.forcedPairings != "[]",
                             onClick = { showMenu = false; onClearForcedPairings() }
                         )
                         if (!tournament.liveBroadcastUrl.isNullOrBlank()) {
@@ -180,18 +197,16 @@ fun RoundsScreen(
                         Spacer(Modifier.height(16.dp))
                         Button(
                             onClick = onStartTournament,
-                            enabled = players.count { it.active && !it.withdrawn } >= 2
+                            enabled = startError == null
                         ) {
                             Icon(Icons.Default.PlayArrow, null, Modifier.size(20.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Start Tournament")
                         }
                         Spacer(Modifier.height(8.dp))
-                        val activeCount = players.count { it.active && !it.withdrawn }
-                        if (activeCount < 2) {
+                        if (startError != null) {
                             Text(
-                                if (activeCount == 0) "Add at least 2 active players to begin"
-                                else "Add at least 1 more active player to begin",
+                                startError,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error
                             )
@@ -250,9 +265,7 @@ fun RoundsScreen(
                                     }
                                 }
                                 !hasMatches -> {
-                                    Button(onClick = { onGeneratePairings(selectedRound) }) {
-                                        Text("Generate Pairings")
-                                    }
+                                    Text("Pairings not generated", style = MaterialTheme.typography.bodyMedium)
                                 }
                                 else -> {
                                     Surface(
@@ -268,7 +281,7 @@ fun RoundsScreen(
                                     }
                                 }
                             }
-                        } else if (selectedRound < currentRound) {
+                        } else if (selectedRound <= currentRound) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
@@ -281,15 +294,8 @@ fun RoundsScreen(
                                     )
                                 }
                                 Spacer(Modifier.width(8.dp))
-                                IconButton(
-                                    onClick = { editingPastRound = !editingPastRound },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        if (editingPastRound) Icons.Default.Lock else Icons.Default.Edit,
-                                        if (editingPastRound) "Lock" else "Edit",
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                TextButton(onClick = { if (editingPastRound) editingPastRound = false else showCorrectionConfirm = true }) {
+                                    Text(if (editingPastRound) "Done editing" else "Correct results")
                                 }
                             }
                         } else if (selectedRound > currentRound) {
@@ -317,7 +323,7 @@ fun RoundsScreen(
                             }
                         }
                     }
-                } else if (selectedRound == currentRound && isActive && roundMatches.isNotEmpty() && roundMatches.all { it.result == null }) {
+                } else if (!tournament.isTeamTournament && selectedRound == currentRound && isActive && roundMatches.isNotEmpty() && roundMatches.filter { it.blackId != null }.all { it.result == null }) {
                     TextButton(
                         onClick = { showSwapMode = true },
                         modifier = Modifier.padding(horizontal = 16.dp)
@@ -330,13 +336,25 @@ fun RoundsScreen(
 
                 Spacer(Modifier.height(8.dp))
 
-                LazyColumn {
-                    items(roundMatches.sortedBy { it.boardNumber }) { match ->
+                if (roundMatches.isNotEmpty()) {
+                    Column(Modifier.padding(horizontal = 16.dp)) {
+                        Text("${roundMatches.count { it.result != null }} of ${roundMatches.size} results entered", style = MaterialTheme.typography.bodyMedium)
+                        OutlinedTextField(value = boardSearch, onValueChange = { boardSearch = it }, label = { Text("Find board or player") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(selected = !pendingOnly, onClick = { pendingOnly = false }, label = { Text("All boards") })
+                            FilterChip(selected = pendingOnly, onClick = { pendingOnly = true }, label = { Text("Pending (${roundMatches.count { it.result == null }})") })
+                        }
+                        if (editingPastRound) Text("Correcting Round $selectedRound · later pairings stay as drawn", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+
+                LazyColumn(Modifier.weight(1f)) {
+                    items(visibleMatches.sortedBy { it.boardNumber }, key = { it.id }) { match ->
                         MatchCard(
                             match = match,
                             players = players,
                             scores = scoreMap,
-                            onUpdateResult = { result -> onUpdateResult(match.id, result) },
+                            onUpdateResult = { result -> onUpdateResult(match.id, result, if (editingPastRound) selectedRound else null) },
                             isSwapMode = showSwapMode,
                             isSwapSelected = swapMatch1?.id == match.id,
                             onSwapSelect = { color ->
@@ -353,9 +371,13 @@ fun RoundsScreen(
                                     swapColor1 = null
                                 }
                             },
-                            showResults = selectedRound == currentRound || editingPastRound,
+                            showResults = (selectedRound == currentRound && isActive) || editingPastRound,
+                            teamLabel = if (tournament.isTeamTournament) teams.filter { team -> converters.toStringList(team.playerIds).any { it == match.whiteId || it == match.blackId } }.joinToString(" vs ") { it.name } else null,
                             enableForfeitScoring = enableForfeitScoring
                         )
+                    }
+                    if (visibleMatches.isEmpty() && roundMatches.isNotEmpty()) item {
+                        Text("No boards match this filter", Modifier.padding(24.dp))
                     }
                 }
 
@@ -363,7 +385,7 @@ fun RoundsScreen(
                     Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             if (selectedRound == currentRound && isActive) {
-                                Text("Click 'Generate Pairings' to create round $selectedRound matches",
+                                    Text("Tap Generate Round $selectedRound pairings below to create matches",
                                     style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
                             } else {
                                 Text("No matches in this round", style = MaterialTheme.typography.bodyMedium)
@@ -379,13 +401,13 @@ fun RoundsScreen(
     if (showCompleteConfirm) {
         AlertDialog(
             onDismissRequest = { showCompleteConfirm = false },
-            title = { Text("Complete Round $currentRound?") },
-            text = { Text("All results will be locked and standings updated. This moves to Round ${currentRound + 1}.") },
+            title = { Text(if (currentRound == tournament.totalRounds) "Finish tournament?" else "Complete Round $currentRound?") },
+            text = { Text(if (currentRound == tournament.totalRounds) "All ${currentRoundMatches.size} results are entered. Finish the tournament and review final standings. Results will be read-only unless you choose to correct them." else "All ${currentRoundMatches.size} results are entered. Complete this round and move to Round ${currentRound + 1}. Results will be read-only unless you choose to correct them.") },
             confirmButton = {
                 TextButton(onClick = {
                     onCompleteRound()
                     showCompleteConfirm = false
-                }) { Text("Complete Round") }
+                }) { Text(if (currentRound == tournament.totalRounds) "Finish tournament" else "Complete round") }
             },
             dismissButton = {
                 TextButton(onClick = { showCompleteConfirm = false }) { Text("Cancel") }
@@ -416,6 +438,14 @@ fun RoundsScreen(
                 TextButton(onClick = { showRollbackConfirm = false }) { Text("Cancel") }
             }
         )
+    }
+
+    if (showCorrectionConfirm) {
+        AlertDialog(onDismissRequest = { showCorrectionConfirm = false },
+            title = { Text("Correct Round $selectedRound results?") },
+            text = { Text("Changes update standings immediately. Pairings already drawn for later rounds will stay unchanged. Choose Done editing when finished.") },
+            confirmButton = { TextButton(onClick = { editingPastRound = true; showCorrectionConfirm = false }) { Text("Edit results") } },
+            dismissButton = { TextButton(onClick = { showCorrectionConfirm = false }) { Text("Cancel") } })
     }
 
     if (showForcedPairingDialog) {
@@ -532,12 +562,13 @@ fun MatchCard(
     onSwapSelect: (Boolean) -> Unit,
     showResults: Boolean,
     enableForfeitScoring: Boolean = true,
-    scores: Map<String, Double> = emptyMap()
+    scores: Map<String, Double> = emptyMap(),
+    teamLabel: String? = null
 ) {
     val whitePlayer = players.find { it.id == match.whiteId }
     val blackPlayer = players.find { it.id == match.blackId }
     val isBye = match.blackId == null
-    fun formatScore(v: Double): String = if (v % 1.0 == 0.0) v.toInt().toString() else String.format("%.1f", v)
+    fun formatScore(v: Double): String = if (v % 1.0 == 0.0) v.toInt().toString() else String.format(java.util.Locale.getDefault(), "%.1f", v)
 
     Card(
         modifier = Modifier
@@ -551,6 +582,7 @@ fun MatchCard(
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(Modifier.padding(14.dp)) {
+            teamLabel?.let { Text(it, style = MaterialTheme.typography.titleSmall); Spacer(Modifier.height(8.dp)) }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -617,6 +649,8 @@ fun MatchCard(
                         "WHITE_WIN" -> "1-0" to Color(0xFF2E7D32)
                         "BLACK_WIN" -> "0-1" to Color(0xFF2E7D32)
                         "DRAW" -> "\u00BD-\u00BD" to Color(0xFF546E7A)
+                        "FORFEIT_WHITE" -> "Black wins by forfeit" to MaterialTheme.colorScheme.onSurfaceVariant
+                        "FORFEIT_BLACK" -> "White wins by forfeit" to MaterialTheme.colorScheme.onSurfaceVariant
                         else -> null to null
                     }
                     if (label != null && color != null) {
@@ -626,7 +660,7 @@ fun MatchCard(
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                color = color
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -657,6 +691,7 @@ fun PlayerRow(
     score: String? = null
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(colorName, Modifier.width(44.dp), style = MaterialTheme.typography.labelMedium)
         // Color indicator circle
         Surface(
             shape = CircleShape,
@@ -716,103 +751,41 @@ fun PlayerRow(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ResultSelector(
-    currentResult: MatchResult?,
-    onSelect: (MatchResult?) -> Unit,
-    enableForfeitScoring: Boolean = true
+    currentResult: MatchResult?, onSelect: (MatchResult?) -> Unit, enableForfeitScoring: Boolean = true
 ) {
-    val buttonCount = if (enableForfeitScoring) 5 else 3
-
+    var showExceptions by remember { mutableStateOf(false) }
     Column {
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.padding(vertical = 4.dp)) {
-            SegmentedButton(
-                selected = currentResult == MatchResult.WHITE_WIN,
-                onClick = {
-                    if (currentResult == MatchResult.WHITE_WIN) onSelect(null)
-                    else onSelect(MatchResult.WHITE_WIN)
-                },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = buttonCount),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = Color(0xFF2E7D32).copy(alpha = 0.15f),
-                    activeContentColor = Color(0xFF2E7D32)
-                )
-            ) {
-                Text("1-0", fontWeight = FontWeight.Bold, maxLines = 1)
-            }
-
-            if (enableForfeitScoring) {
-                SegmentedButton(
-                    selected = currentResult == MatchResult.FORFEIT_BLACK,
-                    onClick = {
-                        if (currentResult == MatchResult.FORFEIT_BLACK) onSelect(null)
-                        else onSelect(MatchResult.FORFEIT_BLACK)
-                    },
-                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = buttonCount),
-                    colors = SegmentedButtonDefaults.colors(
-                        activeContainerColor = Color(0xFF4A148C).copy(alpha = 0.15f),
-                        activeContentColor = Color(0xFF4A148C)
-                    )
-                ) {
-                    Text("+ -", fontWeight = FontWeight.Bold, maxLines = 1)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(MatchResult.WHITE_WIN to "1–0", MatchResult.DRAW to "½–½", MatchResult.BLACK_WIN to "0–1").forEach { (result, notation) ->
+                val description = when (result) {
+                    MatchResult.WHITE_WIN -> "White wins"
+                    MatchResult.BLACK_WIN -> "Black wins"
+                    else -> "Draw"
                 }
-            }
-
-            val drawIdx = if (enableForfeitScoring) 2 else 1
-            SegmentedButton(
-                selected = currentResult == MatchResult.DRAW,
-                onClick = {
-                    if (currentResult == MatchResult.DRAW) onSelect(null)
-                    else onSelect(MatchResult.DRAW)
-                },
-                shape = SegmentedButtonDefaults.itemShape(index = drawIdx, count = buttonCount),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = Color(0xFF546E7A).copy(alpha = 0.15f),
-                    activeContentColor = Color(0xFF546E7A)
-                )
-            ) {
-                Text("\u00BD-\u00BD", fontWeight = FontWeight.Bold, maxLines = 1)
-            }
-
-            if (enableForfeitScoring) {
-                SegmentedButton(
-                    selected = currentResult == MatchResult.FORFEIT_WHITE,
-                    onClick = {
-                        if (currentResult == MatchResult.FORFEIT_WHITE) onSelect(null)
-                        else onSelect(MatchResult.FORFEIT_WHITE)
-                    },
-                    shape = SegmentedButtonDefaults.itemShape(index = 3, count = buttonCount),
-                    colors = SegmentedButtonDefaults.colors(
-                        activeContainerColor = Color(0xFF4A148C).copy(alpha = 0.15f),
-                        activeContentColor = Color(0xFF4A148C)
-                    )
-                ) {
-                    Text("- +", fontWeight = FontWeight.Bold, maxLines = 1)
-                }
-            }
-
-            val blackIdx = if (enableForfeitScoring) 4 else 2
-            SegmentedButton(
-                selected = currentResult == MatchResult.BLACK_WIN,
-                onClick = {
-                    if (currentResult == MatchResult.BLACK_WIN) onSelect(null)
-                    else onSelect(MatchResult.BLACK_WIN)
-                },
-                shape = SegmentedButtonDefaults.itemShape(index = blackIdx, count = buttonCount),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = Color(0xFFC62828).copy(alpha = 0.15f),
-                    activeContentColor = Color(0xFFC62828)
-                )
-            ) {
-                Text("0-1", fontWeight = FontWeight.Bold, maxLines = 1)
+                FilterChip(selected = currentResult == result, onClick = { onSelect(result) },
+                    label = { Text(notation) }, modifier = Modifier.weight(1f).semantics { contentDescription = description })
             }
         }
-
-        if (enableForfeitScoring && (currentResult == MatchResult.FORFEIT_WHITE || currentResult == MatchResult.FORFEIT_BLACK)) {
-            Text(
-                if (currentResult == MatchResult.FORFEIT_WHITE) "Black wins by forfeit" else "White wins by forfeit",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 4.dp)
-            )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(when (currentResult) {
+                MatchResult.WHITE_WIN -> "White wins"
+                MatchResult.BLACK_WIN -> "Black wins"
+                MatchResult.DRAW -> "Draw"
+                MatchResult.FORFEIT_WHITE -> "Black wins by forfeit"
+                MatchResult.FORFEIT_BLACK -> "White wins by forfeit"
+                else -> "Result pending"
+            }, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Box {
+                TextButton(onClick = { showExceptions = true }) { Text("More") }
+                DropdownMenu(expanded = showExceptions, onDismissRequest = { showExceptions = false }) {
+                    if (enableForfeitScoring) {
+                        DropdownMenuItem(text = { Text("White wins by forfeit") }, onClick = { onSelect(MatchResult.FORFEIT_BLACK); showExceptions = false })
+                        DropdownMenuItem(text = { Text("Black wins by forfeit") }, onClick = { onSelect(MatchResult.FORFEIT_WHITE); showExceptions = false })
+                    }
+                    DropdownMenuItem(text = { Text("Clear result") }, enabled = currentResult != null,
+                        onClick = { onSelect(null); showExceptions = false })
+                }
+            }
         }
     }
 }

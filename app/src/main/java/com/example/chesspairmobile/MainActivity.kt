@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.rememberCoroutineScope
@@ -30,6 +31,7 @@ import com.example.chesspairmobile.data.preferences.ThemeMode
 import com.example.chesspairmobile.ui.screens.*
 import com.example.chesspairmobile.ui.theme.ChessPairMobileTheme
 import com.example.chesspairmobile.viewmodel.TournamentViewModel
+import com.example.chesspairmobile.logic.tournamentRoundCount
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,33 +74,43 @@ fun ChessPairApp(
     val settings by preferences.settings.collectAsState(initial = AppSettings())
 
     val activeTournament = tournaments.find { it.id == activeId }
+    val plannedRounds = activeTournament?.let { t ->
+        if (t.status != "SETUP") t.totalRounds else tournamentRoundCount(t.type,
+            if (t.isTeamTournament) teams.count { Converters().toStringList(it.playerIds).isNotEmpty() } else players.count { it.active && !it.withdrawn },
+            t.autoCalculateRounds, t.manualRoundOverride, t.totalRounds, t.swissExtraRound)
+    } ?: 0
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
     val isSettings = currentRoute == "settings"
+    val inTournament = activeTournament != null && !isSettings && currentRoute != "home"
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(viewModel) { viewModel.messages.collect { snackbarHostState.showSnackbar(it) } }
 
     val navItems = listOf(
-        NavItem("home", "Home", Icons.Outlined.Home, Icons.Filled.Home),
-        NavItem("dashboard", "Dashboard", Icons.Outlined.Dashboard, Icons.Filled.Dashboard),
+        NavItem("dashboard", "Overview", Icons.Outlined.Dashboard, Icons.Filled.Dashboard),
         NavItem("players", "Players", Icons.Outlined.People, Icons.Filled.People),
         NavItem("rounds", "Rounds", Icons.Outlined.GridView, Icons.Filled.GridView),
         NavItem("standings", "Standings", Icons.Outlined.Leaderboard, Icons.Filled.Leaderboard)
     )
 
-    val teamNavItem = NavItem("teams", "Teams", Icons.Outlined.Group, Icons.Filled.Group)
-    val allNavItems = if (activeTournament?.isTeamTournament == true) {
-        navItems + teamNavItem
-    } else navItems
+    val allNavItems = navItems
 
-    var themeChangedKey by remember { mutableIntStateOf(0) }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            if (activeTournament != null && !isSettings) {
+            if (inTournament) {
                 TopAppBar(
                     title = { Text(activeTournament!!.name, maxLines = 1) },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.navigate("home") { popUpTo("home"); launchSingleTop = true } }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Tournaments")
+                        }
+                    },
                     actions = {
                         IconButton(onClick = { navController.navigate("settings") { launchSingleTop = true } }) {
                             Icon(Icons.Default.Settings, "Settings")
@@ -108,7 +120,7 @@ fun ChessPairApp(
             }
         },
         bottomBar = {
-            if (activeTournament != null && !isSettings) {
+            if (inTournament) {
                 NavigationBar {
                     allNavItems.forEach { item ->
                         NavigationBarItem(
@@ -119,7 +131,7 @@ fun ChessPairApp(
                                 )
                             },
                             label = { Text(item.label) },
-                            selected = currentRoute == item.route,
+                            selected = currentRoute == item.route || (item.route == "players" && currentRoute == "teams"),
                             onClick = {
                                 navController.navigate(item.route) {
                                     popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -141,6 +153,7 @@ fun ChessPairApp(
             composable("home") {
                 HomeScreen(
                     tournaments = tournaments,
+                    onSettings = { navController.navigate("settings") { launchSingleTop = true } },
                     activeId = activeId,
                     onSelectTournament = { id ->
                         viewModel.setActiveTournament(id)
@@ -169,9 +182,10 @@ fun ChessPairApp(
             composable("dashboard") {
                 DashboardScreen(
                     tournament = activeTournament,
-                    playerCount = players.size,
-                    teamCount = teams.size,
-                    matchCount = matches.size,
+                    players = players,
+                    teams = teams,
+                    matches = matches,
+                    plannedRounds = plannedRounds,
                     onNavigate = { route ->
                         navController.navigate(route) {
                             popUpTo("dashboard") { saveState = true }
@@ -185,9 +199,11 @@ fun ChessPairApp(
             composable("players") {
                 PlayersScreen(
                     players = players,
+                    isTeamTournament = activeTournament?.isTeamTournament == true,
+                    onShowTeams = { navController.navigate("teams") { launchSingleTop = true } },
                     tournamentStatus = activeTournament?.status ?: "SETUP",
                     tournamentRound = activeTournament?.currentRound ?: 0,
-                    tournamentTotalRounds = activeTournament?.totalRounds ?: 0,
+                    tournamentTotalRounds = plannedRounds,
                     onAddPlayer = { name, rating, title, club -> viewModel.addPlayer(name, rating, title, club) },
                     onBulkAdd = { csv -> viewModel.bulkAddPlayers(csv) },
                     onRemovePlayer = { id -> viewModel.removePlayer(id) },
@@ -202,8 +218,11 @@ fun ChessPairApp(
                 TeamsScreen(
                     teams = teams,
                     players = players,
+                    tournamentStatus = activeTournament?.status ?: "COMPLETED",
+                    onShowPlayers = { navController.navigate("players") { popUpTo("players"); launchSingleTop = true } },
                     onAddTeam = { name -> viewModel.addTeam(name) },
                     onAssignPlayer = { teamId, playerId -> viewModel.assignPlayerToTeam(teamId, playerId) },
+                    onMovePlayer = { teamId, playerId, offset -> viewModel.moveTeamPlayer(teamId, playerId, offset) },
                     onRemoveFromTeam = { teamId, playerId ->
                         val team = teams.find { it.id == teamId } ?: return@TeamsScreen
                         val ids = viewModel.run {
@@ -216,16 +235,21 @@ fun ChessPairApp(
             }
 
             composable("rounds") {
-                val snackbarHostState = remember { SnackbarHostState() }
-                val scope = rememberCoroutineScope()
                 RoundsScreen(
                     tournament = activeTournament,
                     players = players,
+                    teams = teams,
                     matches = matches,
+                    plannedRounds = plannedRounds,
                     onStartTournament = { viewModel.startTournament() },
                     onGeneratePairings = { round -> viewModel.generatePairings(round) },
-                    onUpdateResult = { matchId, result -> viewModel.updateMatchResult(matchId, result) },
-                    onCompleteRound = { viewModel.completeRound() },
+                    onUpdateResult = { matchId, result, correctionRound -> viewModel.updateMatchResult(matchId, result, correctionRound) },
+                    onCompleteRound = {
+                        viewModel.completeRound()
+                        if (activeTournament?.currentRound == activeTournament?.totalRounds) {
+                            navController.navigate("standings") { launchSingleTop = true }
+                        }
+                    },
                     onRollbackRound = { viewModel.rollbackRound() },
                     onSwapPlayers = { m1, w1, m2, w2 -> viewModel.swapPlayers(m1, w1, m2, w2) },
                     enableForfeitScoring = settings.enableForfeitScoring,
@@ -243,8 +267,9 @@ fun ChessPairApp(
                 StandingsScreen(
                     tournament = activeTournament,
                     players = players,
+                    teams = teams,
                     matches = matches,
-                    onExportCsv = { viewModel.exportStandingsCsv() },
+                    onExportCsv = { round, teamView -> viewModel.exportStandingsCsv(round, teamView) },
                     onUpdateTiebreakOrder = { order -> viewModel.updateTournamentSettings(tiebreakOrder = order) }
                 )
             }
@@ -253,7 +278,7 @@ fun ChessPairApp(
                 SettingsScreen(
                     preferences = preferences,
                     onBack = { navController.popBackStack() },
-                    onThemeChanged = { themeChangedKey++ }
+                    onThemeChanged = {}
                 )
             }
         }

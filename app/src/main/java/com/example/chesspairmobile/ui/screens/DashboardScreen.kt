@@ -3,198 +3,57 @@ package com.example.chesspairmobile.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.chesspairmobile.data.db.TournamentEntity
+import com.example.chesspairmobile.data.db.*
+import com.example.chesspairmobile.logic.startRequirement
 
 @Composable
 fun DashboardScreen(
-    tournament: TournamentEntity?,
-    playerCount: Int,
-    teamCount: Int,
-    matchCount: Int,
-    onNavigate: (String) -> Unit = {}
+    tournament: TournamentEntity?, players: List<PlayerEntity>, teams: List<TeamEntity>,
+    matches: List<MatchEntity>, plannedRounds: Int = 0, onNavigate: (String) -> Unit = {}
 ) {
     if (tournament == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    Icons.Default.Dashboard, null,
-                    Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                )
-                Spacer(Modifier.height(16.dp))
-                Text("No tournament selected", style = MaterialTheme.typography.headlineSmall)
-                Spacer(Modifier.height(12.dp))
-                FilledTonalButton(onClick = { onNavigate("home") }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(20.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Select Tournament")
-                }
-            }
+        Column(Modifier.fillMaxSize().padding(24.dp)) {
+            Text("Choose a tournament to begin", style = MaterialTheme.typography.headlineSmall)
+            Button(onClick = { onNavigate("home") }) { Text("Tournaments") }
         }
         return
     }
-
-    val statusColor = when (tournament.status) {
-        "SETUP" -> MaterialTheme.colorScheme.outline
-        "ACTIVE" -> MaterialTheme.colorScheme.tertiary
-        "COMPLETED" -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.outline
+    val converters = Converters()
+    val requirement = startRequirement(
+        players.map { com.example.chesspairmobile.data.models.Player(id = it.id, name = it.name, active = it.active, withdrawn = it.withdrawn, requestedByes = converters.toIntList(it.requestedByes)) },
+        teams.map { com.example.chesspairmobile.data.models.Team(id = it.id, name = it.name, playerIds = converters.toStringList(it.playerIds)) },
+        tournament.isTeamTournament, plannedRounds
+    )
+    val currentMatches = matches.filter { it.round == tournament.currentRound }
+    val pending = currentMatches.count { it.result == null }
+    val completedRounds = if (tournament.status == "COMPLETED") tournament.currentRound else (tournament.currentRound - 1).coerceAtLeast(0)
+    val (heading, description, action, route) = when {
+        tournament.status == "SETUP" -> listOf("Prepare your tournament", requirement ?: "Your roster is ready. Review the setup, then start your tournament.", if (requirement == null) "Review and start" else if (tournament.isTeamTournament) "Set up teams" else "Add players", if (requirement == null) "rounds" else if (tournament.isTeamTournament) "teams" else "players")
+        tournament.status == "COMPLETED" -> listOf("Tournament complete", "All ${tournament.totalRounds} rounds are complete. Review the final standings and export your results.", "View final standings", "standings")
+        currentMatches.isEmpty() -> listOf("Round ${tournament.currentRound} is ready", "Generate pairings to begin this round.", "Generate pairings", "rounds")
+        pending > 0 -> listOf("Round ${tournament.currentRound} in progress", "${currentMatches.size - pending} of ${currentMatches.size} results entered · $pending remaining", "Enter remaining results", "rounds")
+        else -> listOf("Round ${tournament.currentRound} results entered", "Review the results before ${if (tournament.currentRound == tournament.totalRounds) "finishing the tournament" else "completing the round"}.", "Review and complete", "rounds")
     }
-
-    val roundProgress = if (tournament.totalRounds > 0) {
-        tournament.currentRound.toFloat() / tournament.totalRounds.toFloat()
-    } else 0f
-
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(tournament.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                tournament.section?.let {
-                    Text(it, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            SuggestionChip(
-                onClick = {},
-                label = { Text(tournament.status.lowercase().replaceFirstChar { it.uppercase() }) },
-                colors = SuggestionChipDefaults.suggestionChipColors(
-                    containerColor = statusColor.copy(alpha = 0.12f),
-                    labelColor = statusColor
-                )
-            )
-        }
-
-        if (tournament.timeControl != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Timer, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(6.dp))
-                Text(tournament.timeControl, style = MaterialTheme.typography.bodyMedium)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("Overview", style = MaterialTheme.typography.titleLarge)
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(heading, style = MaterialTheme.typography.headlineSmall)
+                Text(description, style = MaterialTheme.typography.bodyLarge)
+                Button(onClick = { onNavigate(route) }, modifier = Modifier.fillMaxWidth()) { Text(action) }
             }
         }
-
-        HorizontalDivider()
-
-        // Round progress
-        Column {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Round ${tournament.currentRound} of ${tournament.totalRounds}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-                Text("${(roundProgress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Spacer(Modifier.height(4.dp))
-            LinearProgressIndicator(progress = { roundProgress }, modifier = Modifier.fillMaxWidth(), trackColor = MaterialTheme.colorScheme.surfaceVariant)
-        }
-
-        // Stats row
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatCard("Players", "$playerCount", Icons.Default.Person, Modifier.weight(1f))
-            if (tournament.isTeamTournament) {
-                StatCard("Teams", "$teamCount", Icons.Default.Group, Modifier.weight(1f))
-            }
-            StatCard("Matches", "$matchCount", Icons.Default.GridView, Modifier.weight(1f))
-        }
-
-        HorizontalDivider()
-
-        // Quick-action links
-        if (tournament.status == "SETUP") {
-            Text("Setup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(
-                    onClick = { onNavigate("players") },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.PersonAdd, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Add Players")
-                }
-                if (tournament.isTeamTournament) {
-                    FilledTonalButton(
-                        onClick = { onNavigate("teams") },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.GroupAdd, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Setup Teams")
-                    }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Card(
-                Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            ) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Info, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(12.dp))
-                    Text("Add ${maxOf(0, 2 - playerCount)} more player(s) and configure your tournament, then head to Rounds to start.", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        } else {
-            Text("Quick Actions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(
-                    onClick = { onNavigate("rounds") },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.GridView, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Rounds")
-                }
-                FilledTonalButton(
-                    onClick = { onNavigate("standings") },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.Leaderboard, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Standings")
-                }
-            }
-        }
-
-
-    }
-}
-
-@Composable
-fun StatCard(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-    ) {
-        Column(
-            Modifier.padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(icon, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(4.dp))
-            Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-    ) {
-        Column(
-            Modifier.padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        Text(if (tournament.status == "SETUP") (if (plannedRounds > 0) "$plannedRounds rounds planned" else "Rounds calculated when the roster is ready") else "$completedRounds of ${tournament.totalRounds} rounds completed", style = MaterialTheme.typography.titleMedium)
+        LinearProgressIndicator(progress = { if (tournament.totalRounds > 0) completedRounds.toFloat() / tournament.totalRounds else 0f }, modifier = Modifier.fillMaxWidth())
+        Text("${players.count { it.active && !it.withdrawn }} active players${if (tournament.isTeamTournament) " · ${teams.size} teams" else ""}", style = MaterialTheme.typography.bodyLarge)
+        tournament.section?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        tournament.timeControl?.let { Text("Time control: $it", style = MaterialTheme.typography.bodyMedium) }
+        OutlinedButton(onClick = { onNavigate("players") }, modifier = Modifier.fillMaxWidth()) { Text("Manage players") }
+        if (tournament.isTeamTournament) OutlinedButton(onClick = { onNavigate("teams") }, modifier = Modifier.fillMaxWidth()) { Text("View teams") }
+        OutlinedButton(onClick = { onNavigate("standings") }, modifier = Modifier.fillMaxWidth()) { Text("View standings") }
     }
 }

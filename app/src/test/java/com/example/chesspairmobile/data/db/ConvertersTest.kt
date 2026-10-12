@@ -14,6 +14,10 @@ class ConvertersTest {
 
     private val c = Converters()
 
+    @Test fun `explicit empty tiebreak order stays empty`() {
+        assertEquals(emptyList<TiebreakType>(), c.toTiebreakList(c.fromTiebreakList(emptyList())))
+    }
+
     @Test
     fun `string list round trip`() {
         val list = listOf("a", "b", "c")

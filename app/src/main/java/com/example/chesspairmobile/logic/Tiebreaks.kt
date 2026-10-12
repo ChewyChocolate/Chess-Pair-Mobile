@@ -265,7 +265,8 @@ fun calculateTeamStandings(
     val teamMatchResults = HashMap<String, Pair<String, String>>() // teamMatchId -> (teamA, teamB)
 
     matchesByTeamMatch.forEach { (tmid, ms) ->
-        val first = ms.firstOrNull() ?: return@forEach
+        if (ms.any { it.result == null }) return@forEach
+        val first = ms.firstOrNull { it.blackId != null } ?: return@forEach
         val teamA = playerToTeam[first.whiteId] ?: return@forEach
         val teamB = first.blackId?.let { playerToTeam[it] } ?: return@forEach
         if (teamA == teamB) return@forEach
@@ -279,6 +280,7 @@ fun calculateTeamStandings(
                 MatchResult.DRAW -> { gpA += 0.5; gpB += 0.5 }
                 MatchResult.FORFEIT_WHITE -> if (isAWhite) gpB++ else gpA++
                 MatchResult.FORFEIT_BLACK -> if (isAWhite) gpA++ else gpB++
+                MatchResult.BYE -> if (isAWhite) gpA++ else gpB++
                 else -> {}
             }
         }

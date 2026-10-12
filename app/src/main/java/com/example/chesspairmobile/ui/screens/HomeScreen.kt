@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -22,11 +23,13 @@ import androidx.compose.ui.unit.dp
 import com.example.chesspairmobile.data.db.TournamentEntity
 import com.example.chesspairmobile.data.models.*
 import com.example.chesspairmobile.ui.components.TiebreakConfigPanel
+import com.example.chesspairmobile.ui.components.StatusBadge
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     tournaments: List<TournamentEntity>,
+    onSettings: () -> Unit = {},
     activeId: String?,
     onSelectTournament: (String) -> Unit,
     onCreateTournament: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode, Boolean) -> Unit,
@@ -39,22 +42,26 @@ fun HomeScreen(
         TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS
     )
 ) {
-    var showCreateDialog by remember { mutableStateOf(false) }
+    var showCreateDialog by rememberSaveable { mutableStateOf(false) }
     var deleteConfirmId by remember { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("ChessPair") })
+            TopAppBar(title = { Text("Tournaments") }, actions = {
+                IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") }
+            })
         },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
-            FloatingActionButton(
+            ExtendedFloatingActionButton(
                 onClick = { showCreateDialog = true },
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer
             ) {
                 Icon(Icons.Default.Add, "Create Tournament")
+                Spacer(Modifier.width(8.dp))
+                Text("Create tournament")
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -75,6 +82,8 @@ fun HomeScreen(
                     Text("No tournaments yet", style = MaterialTheme.typography.headlineSmall)
                     Spacer(Modifier.height(8.dp))
                     Text("Create one to get started", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = { showCreateDialog = true }) { Text("Create tournament") }
                 }
             }
         } else {
@@ -129,6 +138,7 @@ fun HomeScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TournamentCard(
     tournament: TournamentEntity,
@@ -161,30 +171,20 @@ fun TournamentCard(
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     TournamentTypeChip(tournament.type)
-                    SuggestionChip(
-                        onClick = {},
-                        label = { Text(tournament.status.lowercase().replaceFirstChar { it.uppercase() }) },
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = statusColor.copy(alpha = 0.12f),
-                            labelColor = statusColor
-                        )
-                    )
+                    StatusBadge(tournament.status.lowercase().replaceFirstChar { it.uppercase() })
                     if (tournament.isTeamTournament) {
-                        SuggestionChip(
-                            onClick = {},
-                            label = { Text("Team") },
-                            icon = { Icon(Icons.Default.Group, null, Modifier.size(16.dp)) }
-                        )
+                        StatusBadge("Team")
                     }
                 }
             }
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.size(48.dp)
-            ) {
-                Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
+            Box {
+                var showMenu by remember { mutableStateOf(false) }
+                IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "Actions for ${tournament.name}") }
+                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    DropdownMenuItem(text = { Text("Delete tournament") }, onClick = { showMenu = false; onDelete() })
+                }
             }
         }
     }
@@ -198,11 +198,7 @@ fun TournamentTypeChip(type: String) {
         "KNOCKOUT" -> "Knockout" to Icons.Default.EmojiEvents
         else -> type to Icons.Default.Info
     }
-    SuggestionChip(
-        onClick = {},
-        label = { Text(label) },
-        icon = { Icon(icon, null, Modifier.size(16.dp)) }
-    )
+    StatusBadge(label)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -219,151 +215,91 @@ fun CreateTournamentDialog(
     ),
     defaultName: String = "Tournament 1"
 ) {
-    var name by remember { mutableStateOf(defaultName) }
-    var section by remember { mutableStateOf("") }
-    var type by remember { mutableStateOf(TournamentType.SWISS) }
-    var isTeam by remember { mutableStateOf(false) }
-    var rounds by remember { mutableStateOf("") }
-    var timeControl by remember { mutableStateOf("") }
-    var winPts by remember { mutableStateOf(defaultPoints.first.toString()) }
-    var drawPts by remember { mutableStateOf(defaultPoints.second.toString()) }
-    var lossPts by remember { mutableStateOf(defaultPoints.third.toString()) }
-    var avoidClubs by remember { mutableStateOf(defaultAvoidClubs) }
-    var autoCalc by remember { mutableStateOf(true) }
-    var swissExtraRound by remember { mutableStateOf(true) }
-    var accelMode by remember { mutableStateOf(defaultAcceleration) }
-    var tiebreakOrder by remember { mutableStateOf(defaultTiebreakOrder) }
-    var tiebreakCustomized by remember { mutableStateOf(false) }
+    var name by rememberSaveable { mutableStateOf(defaultName) }
+    var section by rememberSaveable { mutableStateOf("") }
+    var type by rememberSaveable { mutableStateOf(TournamentType.SWISS) }
+    var isTeam by rememberSaveable { mutableStateOf(false) }
+    var rounds by rememberSaveable { mutableStateOf("") }
+    var timeControl by rememberSaveable { mutableStateOf("") }
+    var winPts by rememberSaveable { mutableStateOf(defaultPoints.first.toString()) }
+    var drawPts by rememberSaveable { mutableStateOf(defaultPoints.second.toString()) }
+    var lossPts by rememberSaveable { mutableStateOf(defaultPoints.third.toString()) }
+    var avoidClubs by rememberSaveable { mutableStateOf(defaultAvoidClubs) }
+    var autoCalc by rememberSaveable { mutableStateOf(true) }
+    var swissExtraRound by rememberSaveable { mutableStateOf(true) }
+    var accelMode by rememberSaveable { mutableStateOf(defaultAcceleration) }
+    var tiebreakOrder by rememberSaveable { mutableStateOf(defaultTiebreakOrder) }
+    var tiebreakCustomized by rememberSaveable { mutableStateOf(false) }
     var expandedType by remember { mutableStateOf(false) }
-
-    // Only reset tiebreak order to the type default when the user hasn't
-    // manually customized it. The default is the *initial* value; if the
-    // user has reordered anything via the panel, preserve their work.
-    LaunchedEffect(type) {
-        if (!tiebreakCustomized) {
-            tiebreakOrder = defaultTiebreakOrderForType(type)
+    var advanced by rememberSaveable { mutableStateOf(false) }
+    val validScoring = listOf(winPts, drawPts, lossPts).all { value -> value.toDoubleOrNull()?.let { it.isFinite() && it >= 0 } == true }
+    val validRounds = type != TournamentType.SWISS || autoCalc || (rounds.toIntOrNull()?.let { it > 0 } == true)
+    fun create() {
+        if (name.isBlank() || !validScoring || !validRounds) return
+        val automatic = type != TournamentType.SWISS || autoCalc
+        onCreate(name.trim(), type, isTeam, if (automatic) 0 else rounds.toInt(), timeControl.ifBlank { null },
+            Triple(winPts.toDouble(), drawPts.toDouble(), lossPts.toDouble()), avoidClubs, automatic, false,
+            section.ifBlank { null }, tiebreakOrder, if (type == TournamentType.SWISS) accelMode else AccelerationMode.NONE, swissExtraRound)
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Scaffold(modifier = Modifier.fillMaxSize().imePadding(),
+            topBar = { TopAppBar(title = { Text("Create tournament") }, navigationIcon = {
+                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Cancel creation") }
+            }) },
+            bottomBar = { Surface(shadowElevation = 4.dp) {
+                Button(onClick = { create() }, enabled = name.isNotBlank() && validScoring && validRounds,
+                    modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp)) { Text("Create tournament") }
+            } }) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Tournament basics", style = MaterialTheme.typography.titleLarge)
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Tournament name") }, singleLine = true, modifier = Modifier.fillMaxWidth(), isError = name.isBlank())
+                OutlinedTextField(value = section, onValueChange = { section = it }, label = { Text("Section (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                ExposedDropdownMenuBox(expanded = expandedType, onExpandedChange = { expandedType = it }) {
+                    fun label(value: TournamentType) = when (value) { TournamentType.SWISS -> "Swiss"; TournamentType.ROUND_ROBIN -> "Round robin"; TournamentType.KNOCKOUT -> "Knockout" }
+                    OutlinedTextField(value = label(type), onValueChange = {}, readOnly = true, label = { Text("Format") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expandedType) }, modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable))
+                    ExposedDropdownMenu(expanded = expandedType, onDismissRequest = { expandedType = false }) {
+                        TournamentType.entries.forEach { choice -> DropdownMenuItem(text = { Text(label(choice)) }, onClick = {
+                            type = choice; expandedType = false
+                            if (!tiebreakCustomized) tiebreakOrder = defaultTiebreakOrderForType(choice)
+                        }) }
+                    }
+                }
+                Text(when (type) { TournamentType.SWISS -> "Players meet opponents with similar scores across a set number of rounds."; TournamentType.ROUND_ROBIN -> "Every participant meets every other participant."; TournamentType.KNOCKOUT -> "Winners advance to the next round." }, style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !isTeam, onClick = { isTeam = false }, label = { Text("Individual") })
+                    FilterChip(selected = isTeam, onClick = { isTeam = true }, label = { Text("Teams") })
+                }
+                if (type == TournamentType.SWISS) {
+                    Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = autoCalc, onCheckedChange = { autoCalc = it }); Text("Calculate rounds from roster") }
+                    if (autoCalc) Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = swissExtraRound, onCheckedChange = { swissExtraRound = it }); Text("Add one extra round") }
+                    else OutlinedTextField(value = rounds, onValueChange = { rounds = it.filter(Char::isDigit) }, label = { Text("Number of rounds") }, singleLine = true, modifier = Modifier.fillMaxWidth(), isError = !validRounds,
+                        supportingText = { if (!validRounds) Text("Enter at least one round") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                } else Text("Rounds are calculated from the ${if (isTeam) "teams" else "players"} when you start.", style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(value = timeControl, onValueChange = { timeControl = it }, label = { Text("Time control (optional, e.g. 90+30)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced settings" else "Advanced settings") }
+                if (advanced) {
+                    Text("Scoring", style = MaterialTheme.typography.titleMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(value = winPts, onValueChange = { winPts = it }, label = { Text("Win") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                        OutlinedTextField(value = drawPts, onValueChange = { drawPts = it }, label = { Text("Draw") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                        OutlinedTextField(value = lossPts, onValueChange = { lossPts = it }, label = { Text("Loss") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    }
+                    if (!validScoring) Text("Enter nonnegative numbers for all scores", color = MaterialTheme.colorScheme.error)
+                    Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = avoidClubs, onCheckedChange = { avoidClubs = it }); Text("Avoid club pairings") }
+                    if (type == TournamentType.SWISS && !isTeam) {
+                        Text("Acceleration", style = MaterialTheme.typography.titleMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AccelerationMode.entries.forEach { mode -> FilterChip(selected = accelMode == mode, onClick = { accelMode = mode }, label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) }) }
+                        }
+                        Text("Baku and Lim change initial seeding for larger Swiss fields. Choose None for standard pairing order.", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    TiebreakConfigPanel(tiebreakOrder, { tiebreakOrder = it; tiebreakCustomized = true }, type)
+                }
+                Text("${if (isTeam) "Team" else "Individual"} tournament · ${if (type != TournamentType.SWISS || autoCalc) "automatic rounds" else "$rounds rounds"} · win $winPts / draw $drawPts / loss $lossPts", style = MaterialTheme.typography.bodyMedium)
+                if (!validScoring && !advanced) Text("Open Advanced settings to correct scoring", color = MaterialTheme.colorScheme.error)
+            }
         }
     }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Create Tournament") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Tournament Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = section, onValueChange = { section = it }, label = { Text("Section (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-
-                ExposedDropdownMenuBox(expanded = expandedType, onExpandedChange = { expandedType = it }) {
-                    OutlinedTextField(
-                        value = when(type) { TournamentType.SWISS -> "Swiss"; TournamentType.ROUND_ROBIN -> "Round Robin"; TournamentType.KNOCKOUT -> "Knockout" },
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Type") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedType) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                    )
-                    ExposedDropdownMenu(expanded = expandedType, onDismissRequest = { expandedType = false }) {
-                        TournamentType.entries.forEach { t ->
-                            DropdownMenuItem(
-                                text = { Text(when(t) { TournamentType.SWISS -> "Swiss"; TournamentType.ROUND_ROBIN -> "Round Robin"; TournamentType.KNOCKOUT -> "Knockout" }) },
-                                onClick = { type = t; expandedType = false }
-                            )
-                        }
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = isTeam, onCheckedChange = { isTeam = it })
-                    Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Default.Group, null, Modifier.size(20.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Team Tournament")
-                }
-
-                OutlinedTextField(
-                    value = rounds,
-                    onValueChange = { input -> rounds = input.filter { it.isDigit() } },
-                    label = { Text("Number of Rounds") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !autoCalc,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
-
-                if (type == TournamentType.SWISS) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = autoCalc, onCheckedChange = { autoCalc = it })
-                        Text("Auto-calculate rounds")
-                    }
-                    if (autoCalc) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = swissExtraRound, onCheckedChange = { swissExtraRound = it })
-                            Text("Add one extra round")
-                        }
-                    }
-                }
-
-                OutlinedTextField(value = timeControl, onValueChange = { timeControl = it }, label = { Text("Time Control (optional, e.g. 90+30)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = avoidClubs, onCheckedChange = { avoidClubs = it })
-                    Text("Avoid club pairings")
-                }
-
-                if (type == TournamentType.SWISS) {
-                    Text("Acceleration", style = MaterialTheme.typography.labelLarge)
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf(AccelerationMode.NONE to "None", AccelerationMode.BAKU to "Baku", AccelerationMode.LIM to "Lim").forEach { (mode, label) ->
-                            FilterChip(
-                                selected = accelMode == mode,
-                                onClick = { accelMode = mode },
-                                label = { Text(label) }
-                            )
-                        }
-                    }
-                }
-
-                Text("Scoring", style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = winPts, onValueChange = { winPts = it }, label = { Text("Win") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                    OutlinedTextField(value = drawPts, onValueChange = { drawPts = it }, label = { Text("Draw") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                    OutlinedTextField(value = lossPts, onValueChange = { lossPts = it }, label = { Text("Loss") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                }
-
-                HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                TiebreakConfigPanel(
-                    tiebreakOrder = tiebreakOrder,
-                    onTiebreakOrderChanged = {
-                        tiebreakOrder = it
-                        tiebreakCustomized = true
-                    },
-                    tournamentType = type
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (name.isNotBlank()) {
-                        onCreate(
-                            name, type, isTeam,
-                            (if (autoCalc) 0 else (rounds.toIntOrNull() ?: 5).coerceAtLeast(1)), timeControl.ifBlank { null },
-                            Triple(winPts.toDoubleOrNull() ?: 1.0, drawPts.toDoubleOrNull() ?: 0.5, lossPts.toDoubleOrNull() ?: 0.0),
-                            avoidClubs, autoCalc, false, section.ifBlank { null },
-                            tiebreakOrder,
-                            accelMode,
-                            swissExtraRound
-                        )
-                    }
-                },
-                enabled = name.isNotBlank() && (autoCalc || rounds.isNotBlank())
-            ) { Text("Create") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
 }

@@ -12,7 +12,8 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.chesspairmobile"
+        // Device review uses a separate installation, preserving the user's app and data.
+        applicationId = providers.gradleProperty("uiReviewApplicationId").getOrElse("com.example.chesspairmobile")
         minSdk = 29
         targetSdk = 36
         versionCode = 1

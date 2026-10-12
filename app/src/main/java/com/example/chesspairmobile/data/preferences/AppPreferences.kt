@@ -91,6 +91,7 @@ class AppPreferences(private val context: Context) {
         if (json.isBlank()) return AppSettings().defaultTiebreakOrder
         return try {
             val names: List<String> = gson.fromJson(json, tiebreakTypeToken) ?: emptyList()
+            if (names.isEmpty()) return emptyList()
             names.mapNotNull { try { TiebreakType.valueOf(it) } catch (_: Exception) { null } }
                 .ifEmpty { AppSettings().defaultTiebreakOrder }
         } catch (_: Exception) { AppSettings().defaultTiebreakOrder }

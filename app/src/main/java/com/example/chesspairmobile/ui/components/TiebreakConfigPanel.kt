@@ -54,8 +54,8 @@ fun TiebreakConfigPanel(
         if (expanded) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
-                    Text("Drag up/down to reorder. Tap to remove. Add from list below.",
-                        style = MaterialTheme.typography.labelSmall,
+                    Text("Use the arrows to reorder and × to remove. Add from the list below.",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
 
@@ -172,21 +172,21 @@ fun TiebreakRow(
 
             // Arrow buttons
             if (onMoveUp != null) {
-                IconButton(onClick = onMoveUp, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.KeyboardArrowUp, "Move up", Modifier.size(20.dp))
+                IconButton(onClick = onMoveUp, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Default.KeyboardArrowUp, "Move $label up", Modifier.size(20.dp))
                 }
             } else {
-                Spacer(Modifier.size(32.dp))
+                Spacer(Modifier.size(48.dp))
             }
             if (onMoveDown != null) {
-                IconButton(onClick = onMoveDown, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.KeyboardArrowDown, "Move down", Modifier.size(20.dp))
+                IconButton(onClick = onMoveDown, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Default.KeyboardArrowDown, "Move $label down", Modifier.size(20.dp))
                 }
             } else {
-                Spacer(Modifier.size(32.dp))
+                Spacer(Modifier.size(48.dp))
             }
-            IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Default.Close, "Remove", Modifier.size(18.dp),
+            IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Default.Close, "Remove $label", Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
             }
         }
