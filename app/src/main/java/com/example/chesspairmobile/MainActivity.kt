@@ -70,6 +70,7 @@ fun ChessPairApp(
     val players by viewModel.players.collectAsState()
     val teams by viewModel.teams.collectAsState()
     val matches by viewModel.matches.collectAsState()
+    val isLoadingTestTournament by viewModel.isLoadingTestTournament.collectAsState()
 
     val settings by preferences.settings.collectAsState(initial = AppSettings())
 
@@ -175,7 +176,16 @@ fun ChessPairApp(
                     defaultPoints = Triple(settings.defaultWinPoints, settings.defaultDrawPoints, settings.defaultLossPoints),
                     defaultAvoidClubs = settings.defaultAvoidClubs,
                     defaultAcceleration = settings.defaultAcceleration,
-                    defaultTiebreakOrder = settings.defaultTiebreakOrder
+                    defaultTiebreakOrder = settings.defaultTiebreakOrder,
+                    isLoadingTestTournament = isLoadingTestTournament,
+                    onLoadTestTournament = if (BuildConfig.DEBUG) { preset ->
+                        viewModel.loadTestTournament(preset) {
+                            navController.navigate("dashboard") {
+                                popUpTo("home")
+                                launchSingleTop = true
+                            }
+                        }
+                    } else null
                 )
             }
 

@@ -24,6 +24,8 @@ import com.example.chesspairmobile.data.db.TournamentEntity
 import com.example.chesspairmobile.data.models.*
 import com.example.chesspairmobile.ui.components.TiebreakConfigPanel
 import com.example.chesspairmobile.ui.components.StatusBadge
+import com.example.chesspairmobile.BuildConfig
+import com.example.chesspairmobile.logic.TestTournamentPreset
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,15 +42,23 @@ fun HomeScreen(
     defaultTiebreakOrder: List<TiebreakType> = listOf(
         TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
         TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS
-    )
+    ),
+    onLoadTestTournament: ((TestTournamentPreset) -> Unit)? = null,
+    isLoadingTestTournament: Boolean = false
 ) {
     var showCreateDialog by rememberSaveable { mutableStateOf(false) }
+    var showTestPresets by rememberSaveable { mutableStateOf(false) }
     var deleteConfirmId by remember { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("Tournaments") }, actions = {
+                if (BuildConfig.DEBUG && onLoadTestTournament != null) {
+                    TextButton(onClick = { showTestPresets = true }, enabled = !isLoadingTestTournament) {
+                        Text(if (isLoadingTestTournament) "Loading…" else "Load test tournament")
+                    }
+                }
                 IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") }
             })
         },
@@ -99,6 +109,27 @@ fun HomeScreen(
                 item { Spacer(Modifier.height(80.dp)) }
             }
         }
+    }
+
+    if (BuildConfig.DEBUG && showTestPresets && onLoadTestTournament != null) {
+        AlertDialog(
+            onDismissRequest = { showTestPresets = false },
+            title = { Text("Load test tournament") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Choose a preset to create a fresh tournament with sample players, ready to start.")
+                    TestTournamentPreset.entries.forEach { preset ->
+                        OutlinedButton(
+                            onClick = { showTestPresets = false; onLoadTestTournament(preset) },
+                            enabled = !isLoadingTestTournament,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(preset.label) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showTestPresets = false }) { Text("Cancel") } }
+        )
     }
 
     deleteConfirmId?.let { id ->

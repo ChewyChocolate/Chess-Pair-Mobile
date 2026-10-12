@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.room.withTransaction
+import com.example.chesspairmobile.BuildConfig
 import com.example.chesspairmobile.data.db.*
 import com.example.chesspairmobile.data.models.*
 import com.example.chesspairmobile.logic.*
@@ -25,6 +26,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     private val converters = Converters()
     private val _messages = MutableSharedFlow<String>()
     val messages = _messages.asSharedFlow()
+    private val _isLoadingTestTournament = MutableStateFlow(false)
+    val isLoadingTestTournament = _isLoadingTestTournament.asStateFlow()
     private fun notifyUser(message: String) { viewModelScope.launch { _messages.emit(message) } }
 
     private val _tournaments = MutableStateFlow<List<TournamentEntity>>(emptyList())
@@ -174,6 +177,31 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
             // (the Flow collector will reconcile shortly)
             _tournaments.value = _tournaments.value + t
             setActiveTournament(t.id)
+        }
+    }
+
+    fun loadTestTournament(preset: TestTournamentPreset, onLoaded: () -> Unit) {
+        if (!BuildConfig.DEBUG || _isLoadingTestTournament.value) return
+        _isLoadingTestTournament.value = true
+        viewModelScope.launch {
+            try {
+                val data = buildTestTournament(preset)
+                db.withTransaction {
+                    dao.insertTournament(data.tournament)
+                    dao.insertPlayers(data.players)
+                    data.teams.forEach { dao.insertTeam(it) }
+                }
+                _tournaments.update { current ->
+                    current.filterNot { it.id == data.tournament.id } + data.tournament
+                }
+                setActiveTournament(data.tournament.id)
+                onLoaded()
+            } catch (error: Exception) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                _messages.emit("Could not load test tournament: ${error.message ?: "Try again"}")
+            } finally {
+                _isLoadingTestTournament.value = false
+            }
         }
     }
 
