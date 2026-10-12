@@ -119,7 +119,12 @@ fun HomeScreen(
             defaultPoints = defaultPoints,
             defaultAvoidClubs = defaultAvoidClubs,
             defaultAcceleration = defaultAcceleration,
-            defaultTiebreakOrder = defaultTiebreakOrder
+            defaultTiebreakOrder = defaultTiebreakOrder,
+            defaultName = generateSequence(1) { it + 1 }
+                .map { "Tournament $it" }
+                .first { candidate ->
+                    tournaments.none { it.name.trim().equals(candidate, ignoreCase = true) }
+                }
         )
     }
 }
@@ -211,9 +216,10 @@ fun CreateTournamentDialog(
     defaultTiebreakOrder: List<TiebreakType> = listOf(
         TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
         TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS
-    )
+    ),
+    defaultName: String = "Tournament 1"
 ) {
-    var name by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(defaultName) }
     var section by remember { mutableStateOf("") }
     var type by remember { mutableStateOf(TournamentType.SWISS) }
     var isTeam by remember { mutableStateOf(false) }
