@@ -128,7 +128,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     private fun requireStatus(vararg allowed: TournamentStatus): Boolean {
         val t = activeTournamentOrNull
         if (t == null) {
-            // Race: tournament just created, Flow hasn't emitted yet – assume SETUP
+            // Race: tournament just created, Flow hasn't emitted yet Ã¢â‚¬â€œ assume SETUP
             return _activeTournamentId.value != null && TournamentStatus.SETUP in allowed
         }
         val status = try { TournamentStatus.valueOf(t.status) } catch (_: Exception) { return false }
@@ -148,7 +148,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         section: String? = null,
         tiebreakOrder: List<TiebreakType> = defaultTiebreakOrderForType(type),
         accelerationMode: AccelerationMode = AccelerationMode.NONE,
-        swissExtraRound: Boolean = true
+        swissExtraRound: Boolean = true,
+        initialColour: String = "W"
     ) {
         val rounds = totalRounds.coerceAtLeast(1)
         val t = TournamentEntity(
@@ -169,7 +170,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
             avoidClubPairings = avoidClubs,
             tiebreakOrder = converters.fromTiebreakList(tiebreakOrder),
             accelerationMode = accelerationMode.name,
-            swissExtraRound = swissExtraRound
+            swissExtraRound = swissExtraRound,
+            initialColour = initialColour
         )
         viewModelScope.launch {
             dao.insertTournament(t)
@@ -265,7 +267,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         }
         if (newPlayers.isNotEmpty()) viewModelScope.launch {
             dao.insertPlayers(newPlayers)
-            _messages.emit("${newPlayers.size} players imported · ${preview.duplicates} duplicates skipped")
+            _messages.emit("${newPlayers.size} players imported Ã‚Â· ${preview.duplicates} duplicates skipped")
         }
     }
     fun updatePlayer(player: PlayerEntity) {
@@ -410,61 +412,72 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
             totalRounds = totalRounds
         )
         viewModelScope.launch {
-            dao.updateTournament(updated)
+            db.withTransaction {
+                val eligible = _players.value.filter { it.active && !it.withdrawn }
+                val starters = if (t.type == "ROUND_ROBIN") eligible.shuffled() else eligible.sortedWith { a, b -> initialPlayerOrder.compare(entityToPlayer(a), entityToPlayer(b)) }
+                starters.forEachIndexed { index, player -> dao.updatePlayer(player.copy(pairingNumber = index + 1)) }
+                _players.value.filter { !it.active || it.withdrawn }.forEach { dao.updatePlayer(it.copy(pairingNumber = 0)) }
+                val teamOrder = if (t.type == "ROUND_ROBIN") getTournamentTeams().filter { it.playerIds.isNotEmpty() }.shuffled()
+                    .mapIndexed { index, team -> team.copy(pairingNumber = index + 1) }
+                    else withTeamPairingNumbers(getTournamentTeams().filter { it.playerIds.isNotEmpty() })
+                teamOrder.forEach { team ->
+                    _teams.value.find { it.id == team.id }?.let { dao.updateTeam(it.copy(pairingNumber = team.pairingNumber)) }
+                }
+                dao.updateTournament(updated)
+            }
         }
     }
 
     fun generatePairings(round: Int) {
         val t = getActiveTournament() ?: return
-        if (t.status != TournamentStatus.ACTIVE.name) return
-        if (round != t.currentRound || _matches.value.any { it.round == round }) return
-        val players = getTournamentPlayers()
-        val matches = getTournamentMatches()
-        val tournamentType = TournamentType.valueOf(t.type)
-
-        val newMatches: List<Match> = when {
-            t.isTeamTournament -> {
-                val teams = getTournamentTeams()
-                when (tournamentType) {
-                    TournamentType.ROUND_ROBIN -> generateTeamRoundRobin(teams, round)
-                    TournamentType.KNOCKOUT -> generateTeamKnockout(teams, matches, round)
-                    TournamentType.SWISS -> generateTeamSwiss(teams, matches, round)
-                }
-            }
-            else -> {
-                when (tournamentType) {
-                    TournamentType.ROUND_ROBIN -> generateRoundRobin(players, round, t.avoidClubPairings)
-                    TournamentType.KNOCKOUT -> generateKnockout(players, matches, round)
-                    TournamentType.SWISS -> generateFideDutch(
-                        players = players,
-                        matches = matches,
-                        round = round,
-                        totalRounds = t.totalRounds,
-                        pointsForWin = t.pointsForWin,
-                        pointsForDraw = t.pointsForDraw,
-                        pointsForLoss = t.pointsForLoss,
-                        avoidClubPairings = t.avoidClubPairings,
-                        forcedPairings = getForcedPairingList(),
-                        accelerationMode = try { AccelerationMode.valueOf(t.accelerationMode) } catch (_: Exception) { AccelerationMode.NONE }
-                    )
-                }
-            }
-        }
-
-        val tid = t.id
-        val matchEntities = newMatches.map { matchToEntity(it, tid) }
-        if (matchEntities.isEmpty()) {
-            notifyUser("No pairings available. Review the roster and previous-round results.")
-            return
-        }
-
+        if (t.status != "ACTIVE" || round != t.currentRound || _matches.value.any { it.round == round }) return
+        val playerSnapshot = _players.value.toList()
+        val teamSnapshot = _teams.value.toList()
+        val history = getTournamentMatches().toList()
         pairingJob?.cancel()
         pairingJob = viewModelScope.launch {
-            db.withTransaction {
-                dao.deleteMatchesByRound(tid, round)
-                dao.insertMatches(matchEntities)
-                if (supportsForcedPairings(t.type, t.isTeamTournament)) dao.updateForcedPairings(tid, "[]")
-            }
+            try {
+                val seedPool = playerSnapshot.map(::entityToPlayer).filter {
+                    if (t.type == "ROUND_ROBIN" && playerSnapshot.any { p -> p.pairingNumber > 0 }) it.pairingNumber > 0
+                    else it.pairingNumber > 0 || (it.active && !it.withdrawn) || t.type == "ROUND_ROBIN"
+                }
+                val seeded = withPairingNumbers(seedPool)
+                val players = playerSnapshot.map { entity -> seeded.find { it.id == entity.id } ?: entityToPlayer(entity) }
+                val teams = withTeamPairingNumbers(teamSnapshot.map(::entityToTeam).filter { it.playerIds.isNotEmpty() })
+                val generated = withContext(Dispatchers.Default) {
+                    if (t.isTeamTournament) {
+                        when (t.type) {
+                            "ROUND_ROBIN" -> generateTeamRoundRobin(teams, round, players)
+                            "KNOCKOUT" -> generateTeamKnockout(teams, history, round, players)
+                            else -> generateTeamSwiss(teams, history, round, t.totalRounds, t.initialColour.first(), players)
+                        }
+                    } else when (t.type) {
+                        "ROUND_ROBIN" -> generateRoundRobin(players, round, t.avoidClubPairings)
+                        "KNOCKOUT" -> generateKnockout(players, history, round)
+                        else -> generateFideDutch(players, history, round, t.totalRounds,
+                            t.pointsForWin, t.pointsForDraw, t.pointsForLoss, t.avoidClubPairings,
+                            getForcedPairingList(), converters.toAccelerationMode(t.accelerationMode), t.initialColour.first())
+                    }
+                }
+                if (generated.isEmpty()) throw PairingException("No pairings available. Review the roster and previous-round results.")
+                if (!t.isTeamTournament && t.type == "SWISS") {
+                    swissRoundIssue(players, history, generated, round, t.totalRounds, t.pointsForWin, t.pointsForDraw, t.pointsForLoss)?.let { throw PairingException(it) }
+                }
+                db.withTransaction {
+                    val current = dao.getTournament(t.id)
+                    if (current != t || dao.getPlayersByTournament(t.id) != playerSnapshot || dao.getTeamsByTournament(t.id) != teamSnapshot || dao.getMatchesByRound(t.id, round).isNotEmpty()) {
+                        throw PairingException("Tournament data changed during pairing. Generate this round again.")
+                    }
+                    playerSnapshot.forEach { entity ->
+                        seeded.find { it.id == entity.id }?.let { dao.updatePlayer(entity.copy(pairingNumber = it.pairingNumber)) }
+                    }
+                    teamSnapshot.forEach { entity ->
+                        teams.find { it.id == entity.id }?.let { dao.updateTeam(entity.copy(pairingNumber = it.pairingNumber)) }
+                    }
+                    dao.insertMatches(generated.map { matchToEntity(it, t.id) })
+                    if (supportsForcedPairings(t.type, t.isTeamTournament)) dao.updateForcedPairings(t.id, "[]")
+                }
+            } catch (error: PairingException) { notifyUser(error.message ?: "The arbiter must resolve this round.") }
         }
     }
 
@@ -472,6 +485,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         val t = getActiveTournament() ?: return
         val match = _matches.value.find { it.id == matchId } ?: return
         if (!canUpdateResult(t.status, t.currentRound, match.round, correctionRound)) return
+        if (match.whiteId == null || match.blackId == null) return // Scheduled rests/byes and missing-board forfeits are automatic.
         updateMatch(match.copy(result = result?.name))
     }
 
@@ -497,6 +511,11 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         roundCompletionIssue(t.type, t.isTeamTournament, roundMatches.map(::entityToMatch), getTournamentTeams())?.let {
             notifyUser(it)
             return false
+        }
+
+        if (t.type == "SWISS" && !t.isTeamTournament) {
+            swissRoundIssue(getTournamentPlayers(), getTournamentMatches(), roundMatches.map(::entityToMatch), t.currentRound,
+                t.totalRounds, t.pointsForWin, t.pointsForDraw, t.pointsForLoss)?.let { notifyUser(it); return false }
         }
 
         val nextRound = t.currentRound + 1
@@ -527,7 +546,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
 
     fun swapPlayers(matchId1: String, isWhite1: Boolean, matchId2: String, isWhite2: Boolean) {
         val tournament = getActiveTournament() ?: return
-        if (tournament.status != "ACTIVE" || tournament.isTeamTournament) return
+        if (tournament.status != "ACTIVE" || tournament.isTeamTournament || tournament.type != "SWISS") return
         val tid = _activeTournamentId.value ?: return
         val m1 = _matches.value.find { it.id == matchId1 } ?: return
         val m2 = _matches.value.find { it.id == matchId2 } ?: return
@@ -544,39 +563,39 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         val p2Id = if (isWhite2) m2.whiteId else m2.blackId
         if (p1Id == null || p2Id == null) return
 
-        val newM1 = if (isWhite1) m1.copy(whiteId = p2Id) else m1.copy(blackId = p2Id)
-        val newM2 = if (isWhite2) m2.copy(whiteId = p1Id) else m2.copy(blackId = p1Id)
-
+        if (m1.id == m2.id && isWhite1 == isWhite2) return
+        val changed = if (m1.id == m2.id) listOf(m1.copy(whiteId = m1.blackId, blackId = m1.whiteId, isManual = true)) else listOf(
+            (if (isWhite1) m1.copy(whiteId = p2Id) else m1.copy(blackId = p2Id)).copy(isManual = true),
+            (if (isWhite2) m2.copy(whiteId = p1Id) else m2.copy(blackId = p1Id)).copy(isManual = true))
+        val proposed = getTournamentMatches().filter { it.round == tournament.currentRound }.map { current ->
+            changed.find { it.id == current.id }?.let(::entityToMatch) ?: current
+        }
+        swissRoundIssue(getTournamentPlayers(), getTournamentMatches(), proposed, tournament.currentRound, tournament.totalRounds,
+            tournament.pointsForWin, tournament.pointsForDraw, tournament.pointsForLoss)?.let { notifyUser(it); return }
         viewModelScope.launch {
-            dao.updateMatch(newM1)
-            dao.updateMatch(newM2)
+            db.withTransaction { changed.forEach { dao.updateMatch(it) } }
         }
     }
 
     fun addManualMatch(round: Int, whiteId: String?, blackId: String?) {
-        if (!requireStatus(TournamentStatus.ACTIVE, TournamentStatus.COMPLETED)) return
-        val tid = _activeTournamentId.value ?: return
-        val boardNum = (_matches.value.filter { it.round == round }.maxOfOrNull { it.boardNumber ?: 0 } ?: 0) + 1
-        val match = MatchEntity(
-            id = UUID.randomUUID().toString(),
-            tournamentId = tid,
-            round = round,
-            whiteId = whiteId,
-            blackId = blackId,
-            result = if (blackId == null) MatchResult.BYE.name else null,
-            boardNumber = boardNum,
-            teamMatchId = null,
-            isManual = true,
-            pgn = null
-        )
-        viewModelScope.launch {
-            dao.insertMatch(match)
+        val t = getActiveTournament() ?: return
+        if (t.status != "ACTIVE" || t.type != "SWISS" || t.isTeamTournament || round != t.currentRound) {
+            notifyUser("Manual pairing is available only for the current individual Swiss round.")
+            return
         }
+        val match = Match(round = round, whiteId = whiteId, blackId = blackId,
+            result = if (blackId == null) MatchResult.BYE else null,
+            boardNumber = (_matches.value.filter { it.round == round }.maxOfOrNull { it.boardNumber ?: 0 } ?: 0) + 1, isManual = true)
+        val proposed = getTournamentMatches().filter { it.round == round } + match
+        swissRoundIssue(getTournamentPlayers(), getTournamentMatches(), proposed, round, t.totalRounds,
+            t.pointsForWin, t.pointsForDraw, t.pointsForLoss, requireComplete = false)?.let { notifyUser(it); return }
+        viewModelScope.launch { dao.insertMatch(matchToEntity(match, t.id)) }
     }
 
     fun removeManualMatch(matchId: String) {
-        if (!requireStatus(TournamentStatus.ACTIVE, TournamentStatus.COMPLETED)) return
-        val tid = _activeTournamentId.value ?: return
+        val t = getActiveTournament() ?: return
+        val match = _matches.value.find { it.id == matchId } ?: return
+        if (t.status != "ACTIVE" || t.type != "SWISS" || !match.isManual || match.round != t.currentRound || match.result != null) return
         viewModelScope.launch {
             dao.deleteMatch(matchId)
         }
@@ -595,7 +614,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
             autoCalculateRounds = edited.autoCalculateRounds, manualRoundOverride = edited.manualRoundOverride,
             timeControl = edited.timeControl, pointsForWin = edited.pointsForWin,
             pointsForDraw = edited.pointsForDraw, pointsForLoss = edited.pointsForLoss,
-            avoidClubPairings = edited.avoidClubPairings, accelerationMode = edited.accelerationMode,
+            avoidClubPairings = edited.avoidClubPairings, accelerationMode = edited.accelerationMode, initialColour = edited.initialColour,
             tiebreakOrder = edited.tiebreakOrder, swissExtraRound = edited.swissExtraRound,
             forcedPairings = if (supportsForcedPairings(edited.type, edited.isTeamTournament)) current.forcedPairings else "[]"
         )
@@ -616,6 +635,10 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         tiebreakOrder: List<TiebreakType>? = null
     ) {
         val t = getActiveTournament() ?: return
+        if (t.status != "SETUP" && (pointsForWin != null || pointsForDraw != null || pointsForLoss != null || avoidClubPairings != null || accelerationMode != null)) {
+            notifyUser("Pairing and scoring policies are fixed when the tournament starts.")
+            return
+        }
         val updated = t.copy(
             name = name?.takeIf { it.isNotBlank() } ?: t.name,
             section = section?.takeIf { it.isNotBlank() } ?: t.section,
@@ -641,7 +664,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         val standings = calculateStandings(
             getTournamentPlayers(), getTournamentMatches(),
             t.pointsForWin, t.pointsForDraw, t.pointsForLoss,
-            converters.toTiebreakList(t.tiebreakOrder)
+            converters.toTiebreakList(t.tiebreakOrder), upToRound = t.currentRound,
+            tournamentType = if (t.isTeamTournament) null else TournamentType.valueOf(t.type)
         )
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -742,7 +766,7 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     )
 
     fun entityToTeam(e: TeamEntity) = Team(
-        id = e.id, name = e.name, playerIds = converters.toStringList(e.playerIds)
+        id = e.id, name = e.name, playerIds = converters.toStringList(e.playerIds), pairingNumber = e.pairingNumber
     )
 
     fun entityToMatch(e: MatchEntity) = Match(
@@ -766,291 +790,8 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         return standingsCsv(
             getTournamentPlayers(), getTournamentTeams(), getTournamentMatches(), throughRound,
             t.pointsForWin, t.pointsForDraw, t.pointsForLoss,
-            converters.toTiebreakList(t.tiebreakOrder), teamView ?: t.isTeamTournament
+            converters.toTiebreakList(t.tiebreakOrder), teamView ?: t.isTeamTournament,
+            if (t.isTeamTournament) null else TournamentType.valueOf(t.type)
         )
-    }
-    // ---- Team pairing helpers ----
-
-    private fun generateTeamSwiss(teams: List<Team>, matches: List<Match>, round: Int): List<Match> {
-        val (teamMatchPoints, teamGamePoints) = calculateTeamScores(teams, matches)
-        val resultMatches = mutableListOf<Match>()
-        var boardNumber = 1
-
-        var teamsToPair = teams.filter { it.playerIds.isNotEmpty() }
-            .sortedWith(compareByDescending<Team> { teamMatchPoints[it.id] ?: 0.0 }
-                .thenByDescending { teamGamePoints[it.id] ?: 0.0 })
-            .toMutableList()
-        if (teamsToPair.isEmpty()) return emptyList()
-
-        val teamByes = mutableSetOf<String>()
-        matches.filter { it.teamMatchId != null && it.result == MatchResult.BYE }.forEach { m ->
-            teams.find { t -> t.playerIds.contains(m.whiteId) }?.let { teamByes.add(it.id) }
-        }
-
-        val teamPlayed = mutableMapOf<String, MutableSet<String>>()
-        teams.forEach { teamPlayed[it.id] = mutableSetOf() }
-        matches.filter { it.teamMatchId != null && it.whiteId != null && it.blackId != null }.forEach { m ->
-            val t1 = teams.find { it.playerIds.contains(m.whiteId) }
-            val t2 = teams.find { it.playerIds.contains(m.blackId) }
-            if (t1 != null && t2 != null) {
-                teamPlayed.getOrPut(t1.id) { mutableSetOf() }.add(t2.id)
-                teamPlayed.getOrPut(t2.id) { mutableSetOf() }.add(t1.id)
-            }
-        }
-
-        if (teamsToPair.size % 2 != 0) {
-            var byeIdx = teamsToPair.size - 1
-            while (byeIdx >= 0 && teamByes.contains(teamsToPair[byeIdx].id)) byeIdx--
-            if (byeIdx < 0) byeIdx = teamsToPair.size - 1
-            val byeTeam = teamsToPair[byeIdx]
-            val teamMatchId = UUID.randomUUID().toString()
-            byeTeam.playerIds.forEach { pid ->
-                resultMatches.add(Match(
-                    round = round, whiteId = pid, blackId = null,
-                    result = MatchResult.BYE, boardNumber = 999, teamMatchId = teamMatchId
-                ))
-            }
-            teamsToPair.removeAt(byeIdx)
-        }
-
-        while (teamsToPair.size > 1) {
-            val t1 = teamsToPair[0]
-            var t2Idx = -1
-            val half = teamsToPair.size / 2
-            for (j in half until teamsToPair.size) {
-                if (teamPlayed[t1.id]?.contains(teamsToPair[j].id) != true) { t2Idx = j; break }
-            }
-            if (t2Idx == -1) {
-                for (j in 1 until teamsToPair.size) {
-                    if (teamPlayed[t1.id]?.contains(teamsToPair[j].id) != true) { t2Idx = j; break }
-                }
-            }
-            if (t2Idx == -1) t2Idx = 1
-
-            val t2 = teamsToPair[t2Idx]
-            val teamMatchId = UUID.randomUUID().toString()
-            val maxBoards = maxOf(t1.playerIds.size, t2.playerIds.size)
-            for (b in 0 until maxBoards) {
-                val pWhite = t1.playerIds.getOrNull(b)
-                val pBlack = t2.playerIds.getOrNull(b)
-                val actualWhiteId = if (b % 2 == 0) pWhite else pBlack
-                val actualBlackId = if (b % 2 == 0) pBlack else pWhite
-                when {
-                    actualWhiteId != null && actualBlackId != null -> {
-                        resultMatches.add(Match(
-                            round = round, whiteId = actualWhiteId, blackId = actualBlackId,
-                            boardNumber = boardNumber++, teamMatchId = teamMatchId
-                        ))
-                    }
-                    actualWhiteId != null -> {
-                        resultMatches.add(Match(
-                            round = round, whiteId = actualWhiteId, blackId = null,
-                            result = MatchResult.BYE, boardNumber = boardNumber++, teamMatchId = teamMatchId
-                        ))
-                    }
-                    actualBlackId != null -> {
-                        resultMatches.add(Match(
-                            round = round, whiteId = actualBlackId, blackId = null,
-                            result = MatchResult.BYE, boardNumber = boardNumber++, teamMatchId = teamMatchId
-                        ))
-                    }
-                }
-            }
-            teamsToPair.removeAt(t2Idx)
-            teamsToPair.removeAt(0)
-        }
-        return resultMatches
-    }
-
-    private fun generateTeamRoundRobin(teams: List<Team>, round: Int): List<Match> {
-        val activeTeams = teams.filter { it.playerIds.isNotEmpty() }
-        if (activeTeams.isEmpty()) return emptyList()
-        val n = activeTeams.size
-        val isOdd = n % 2 != 0
-        val workingTeams = if (isOdd) activeTeams + Team(id = "dummy", name = "Bye") else activeTeams
-        val totalTeams = workingTeams.size
-        if (totalTeams == 0) return emptyList()
-
-        val p = workingTeams.toMutableList()
-        for (i in 1 until round) {
-            if (p.isEmpty()) break
-            val last = p.removeAt(p.lastIndex)
-            p.add(1, last)
-        }
-
-        val resultMatches = mutableListOf<Match>()
-        var boardNumber = 1
-
-        for (i in 0 until totalTeams / 2) {
-            val t1 = p[i]
-            val t2 = p[totalTeams - 1 - i]
-            if (t1.id == "dummy" || t2.id == "dummy") {
-                val realTeam = if (t1.id == "dummy") t2 else t1
-                val teamMatchId = UUID.randomUUID().toString()
-                realTeam.playerIds.forEach { pid ->
-                    resultMatches.add(Match(
-                        round = round, whiteId = pid, blackId = null,
-                        result = MatchResult.BYE, boardNumber = 999, teamMatchId = teamMatchId
-                    ))
-                }
-            } else {
-                val isEvenRound = round % 2 == 0
-                val teamWhite = if (isEvenRound) t2 else t1
-                val teamBlack = if (isEvenRound) t1 else t2
-                val teamMatchId = UUID.randomUUID().toString()
-                val maxBoards = maxOf(teamWhite.playerIds.size, teamBlack.playerIds.size)
-                for (b in 0 until maxBoards) {
-                    val pWhite = teamWhite.playerIds.getOrNull(b)
-                    val pBlack = teamBlack.playerIds.getOrNull(b)
-                    val actualWhiteId = if (b % 2 == 0) pWhite else pBlack
-                    val actualBlackId = if (b % 2 == 0) pBlack else pWhite
-                    when {
-                        actualWhiteId != null && actualBlackId != null -> {
-                            resultMatches.add(Match(
-                                round = round, whiteId = actualWhiteId, blackId = actualBlackId,
-                                boardNumber = boardNumber++, teamMatchId = teamMatchId
-                            ))
-                        }
-                        actualWhiteId != null -> {
-                            resultMatches.add(Match(
-                                round = round, whiteId = actualWhiteId, blackId = null,
-                                result = MatchResult.BYE, boardNumber = boardNumber++, teamMatchId = teamMatchId
-                            ))
-                        }
-                        actualBlackId != null -> {
-                            resultMatches.add(Match(
-                                round = round, whiteId = actualBlackId, blackId = null,
-                                result = MatchResult.BYE, boardNumber = boardNumber++, teamMatchId = teamMatchId
-                            ))
-                        }
-                    }
-                }
-            }
-        }
-        return resultMatches
-    }
-
-    private fun generateTeamKnockout(teams: List<Team>, matches: List<Match>, round: Int): List<Match> {
-        if (round == 1) {
-            val activeTeams = teams.filter { it.playerIds.isNotEmpty() }
-            if (activeTeams.isEmpty()) return emptyList()
-            val n = activeTeams.size
-            if (n == 0) return emptyList()
-            val nextPowerOfTwo = 2.0.pow(ceil(log2(n.toDouble()))).toInt()
-            val byesCount = nextPowerOfTwo - n
-
-            val shuffled = activeTeams.shuffled().toMutableList()
-            val resultMatches = mutableListOf<Match>()
-            var boardNumber = 1
-
-            val byeTeams = shuffled.take(byesCount)
-            shuffled.removeAll(byeTeams)
-            byeTeams.forEach { team ->
-                val tmid = UUID.randomUUID().toString()
-                team.playerIds.forEach { pid ->
-                    resultMatches.add(Match(
-                        round = 1, whiteId = pid, blackId = null,
-                        result = MatchResult.BYE, boardNumber = 999, teamMatchId = tmid
-                    ))
-                }
-            }
-
-            for (i in shuffled.indices step 2) {
-                val t1 = shuffled[i]
-                val t2 = shuffled.getOrNull(i + 1)
-                val tmid = UUID.randomUUID().toString()
-                if (t2 != null) {
-                    val maxBoards = maxOf(t1.playerIds.size, t2.playerIds.size)
-                    for (b in 0 until maxBoards) {
-                        val p1 = t1.playerIds.getOrNull(b)
-                        val p2 = t2.playerIds.getOrNull(b)
-                        val wid = if (b % 2 == 0) p1 else p2
-                        val bid = if (b % 2 == 0) p2 else p1
-                        if (wid != null || bid != null) {
-                            resultMatches.add(Match(
-                                round = round, whiteId = wid, blackId = bid,
-                                boardNumber = boardNumber++, teamMatchId = tmid
-                            ))
-                        }
-                    }
-                } else {
-                    t1.playerIds.forEach { pid ->
-                        resultMatches.add(Match(
-                            round = round, whiteId = pid, blackId = null,
-                            result = MatchResult.BYE, boardNumber = 999, teamMatchId = tmid
-                        ))
-                    }
-                }
-            }
-            return resultMatches
-        }
-
-        val prevRoundMatches = matches.filter { it.round == round - 1 }
-        val teamMatchIds = prevRoundMatches.mapNotNull { it.teamMatchId }.distinct()
-        val winners = mutableListOf<String>()
-
-        teamMatchIds.forEach { tmid ->
-            val tmatches = prevRoundMatches.filter { it.teamMatchId == tmid }
-            val firstMatch = tmatches.firstOrNull() ?: return@forEach
-            if (firstMatch.result == MatchResult.BYE) {
-                firstMatch.whiteId?.let { wid ->
-                    teams.find { it.playerIds.contains(wid) }?.let { winners.add(it.id) }
-                }
-                return@forEach
-            }
-            val twid = firstMatch.whiteId ?: return@forEach
-            val tbid = firstMatch.blackId ?: return@forEach
-            val teamWhite = teams.find { it.playerIds.contains(twid) }
-            val teamBlack = teams.find { it.playerIds.contains(tbid) }
-            if (teamWhite != null && teamBlack != null) {
-                var matchGPW = 0.0
-                var matchGPB = 0.0
-                tmatches.forEach { m ->
-                    val isW = teamWhite.playerIds.contains(m.whiteId)
-                    when (m.result) {
-                        MatchResult.WHITE_WIN -> if (isW) matchGPW++ else matchGPB++
-                        MatchResult.BLACK_WIN -> if (isW) matchGPB++ else matchGPW++
-                        MatchResult.DRAW -> { matchGPW += 0.5; matchGPB += 0.5 }
-                        MatchResult.FORFEIT_WHITE -> if (isW) matchGPB++ else matchGPW++
-                        MatchResult.FORFEIT_BLACK -> if (isW) matchGPW++ else matchGPB++
-                        else -> {}
-                    }
-                }
-                if (matchGPW > matchGPB) winners.add(teamWhite.id)
-                else if (matchGPB > matchGPW) winners.add(teamBlack.id)
-                else winners.add(teamWhite.id)
-            }
-        }
-
-        val resultMatches = mutableListOf<Match>()
-        var boardNumber = 1
-        for (i in winners.indices step 2) {
-            val t1 = teams.find { it.id == winners[i] } ?: continue
-            val t2 = teams.find { it.id == winners.getOrNull(i + 1) ?: "" }
-            val tmid = UUID.randomUUID().toString()
-            if (t2 != null) {
-                val maxBoards = maxOf(t1.playerIds.size, t2.playerIds.size)
-                for (b in 0 until maxBoards) {
-                    val p1 = t1.playerIds.getOrNull(b)
-                    val p2 = t2.playerIds.getOrNull(b)
-                    val wid = if (b % 2 == 0) p1 else p2
-                    val bid = if (b % 2 == 0) p2 else p1
-                    if (wid != null || bid != null) {
-                        resultMatches.add(Match(
-                            round = round, whiteId = wid, blackId = bid,
-                            boardNumber = boardNumber++, teamMatchId = tmid
-                        ))
-                    }
-                }
-            } else {
-                t1.playerIds.forEach { pid ->
-                    resultMatches.add(Match(
-                        round = round, whiteId = pid, blackId = null,
-                        result = MatchResult.BYE, boardNumber = 999, teamMatchId = tmid
-                    ))
-                }
-            }
-        }
-        return resultMatches
     }
 }

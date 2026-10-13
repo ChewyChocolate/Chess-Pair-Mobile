@@ -184,7 +184,7 @@ fun RoundsScreen(
                         if (selectedRound == currentRound && (isActive || tournament.status == "COMPLETED")) {
                             DropdownMenuItem(text = { Text(if (isActive) "Roll back Round $currentRound" else "Reopen tournament") }, onClick = { showMenu = false; showRollbackConfirm = true })
                         }
-                        if (!tournament.isTeamTournament && selectedRound == currentRound && isActive && roundMatches.isNotEmpty() && roundMatches.filter { it.blackId != null }.all { it.result == null }) {
+                        if (tournament.type == "SWISS" && !tournament.isTeamTournament && selectedRound == currentRound && isActive && roundMatches.isNotEmpty() && roundMatches.filter { it.blackId != null }.all { it.result == null }) {
                             DropdownMenuItem(text = { Text("Swap Players") }, onClick = { showMenu = false; showSwapMode = true })
                         }
                         if (tournament.type == "KNOCKOUT") DropdownMenuItem(text = { Text("Round guidance") },
@@ -538,9 +538,9 @@ fun MatchCard(
     swapSelectedColor: Boolean? = null,
     swapUnavailable: Boolean = false
 ) {
-    val whitePlayer = players.find { it.id == match.whiteId }
+    val whitePlayer = players.find { it.id == (match.whiteId ?: match.blackId) }
     val blackPlayer = players.find { it.id == match.blackId }
-    val isBye = match.blackId == null
+    val isBye = match.blackId == null || match.whiteId == null
     fun formatScore(v: Double): String = if (v % 1.0 == 0.0) v.toInt().toString() else String.format(java.util.Locale.getDefault(), "%.1f", v)
 
     Card(
@@ -564,7 +564,7 @@ fun MatchCard(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
-                            if (isBye) "BYE" else "${match.boardNumber ?: "?"}",
+                            if (match.result == "BYE" || match.result == "TEAM_BYE") "BYE" else "${match.boardNumber ?: "?"}",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -576,7 +576,7 @@ fun MatchCard(
                 Column(modifier = Modifier.weight(1f)) {
                     PlayerRow(
                         player = whitePlayer,
-                        colorName = "White",
+                        colorName = if (isBye) "Participant" else "White",
                         isSwapMode = isSwapMode,
                         isSelected = isSwapSelected && swapSelectedColor == true,
                         onSwapClick = { onSwapSelect(true) },
@@ -601,7 +601,7 @@ fun MatchCard(
                             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
                         ) {
                             Text(
-                                "BYE",
+                                when (match.result) { "REST" -> "Rest · 0 points"; "TEAM_BYE" -> "Team bye · draw points"; "FORFEIT_WHITE", "FORFEIT_BLACK" -> "Opponent absent · forfeit win"; else -> "BYE" },
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                 color = MaterialTheme.colorScheme.primary
@@ -623,6 +623,7 @@ fun MatchCard(
                         "BLACK_WIN" -> "0-1" to Color(0xFF2E7D32)
                         "DRAW" -> "\u00BD-\u00BD" to Color(0xFF546E7A)
                         "FORFEIT_WHITE" -> "Black wins by forfeit" to MaterialTheme.colorScheme.onSurfaceVariant
+                        "FORFEIT_BOTH" -> "Both players forfeit" to MaterialTheme.colorScheme.onSurfaceVariant
                         "FORFEIT_BLACK" -> "White wins by forfeit" to MaterialTheme.colorScheme.onSurfaceVariant
                         else -> null to null
                     }

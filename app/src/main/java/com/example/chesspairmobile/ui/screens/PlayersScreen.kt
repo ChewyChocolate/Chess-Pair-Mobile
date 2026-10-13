@@ -229,6 +229,7 @@ fun PlayerCard(
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(player.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                if (player.pairingNumber > 0) Text("Pairing number ${player.pairingNumber}", style = MaterialTheme.typography.bodySmall)
                 Text(listOfNotNull(player.rating?.let { "Rating $it" }, player.title, player.club).joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
                 if (player.withdrawn) Text("Withdrawn", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (byeRounds.isNotEmpty()) Text("Requested byes: ${byeRounds.joinToString()}", style = MaterialTheme.typography.bodyMedium)

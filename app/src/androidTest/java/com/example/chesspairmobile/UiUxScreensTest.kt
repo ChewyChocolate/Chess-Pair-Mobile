@@ -54,7 +54,7 @@ class UiUxScreensTest {
         var savedPoints: Triple<Double, Double, Double>? = null
         compose.setContent { ChessPairMobileTheme(dynamicColor = false, darkTheme = false) {
             CreateTournamentDialog(onDismiss = {}, initialTournament = tournament.copy(status = "SETUP", pointsForWin = 3.0),
-                onCreate = { name, _, _, _, _, points, _, _, _, _, _, _, _ -> savedName = name; savedPoints = points })
+                onCreate = { name, _, _, _, _, points, _, _, _, _, _, _, _, _ -> savedName = name; savedPoints = points })
         } }
         compose.onNodeWithText("Tournament name").performTextReplacement("Edited Open")
         compose.onNodeWithText("Save tournament").performClick()
@@ -64,7 +64,7 @@ class UiUxScreensTest {
 
     @Test fun checkboxLabelIsTheToggleTarget() {
         compose.setContent { ChessPairMobileTheme(dynamicColor = false, darkTheme = false) {
-            CreateTournamentDialog({}, { _, _, _, _, _, _, _, _, _, _, _, _, _ -> })
+            CreateTournamentDialog({}, { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> })
         } }
         compose.onNodeWithText("Calculate rounds from roster").assertIsOn().performClick().assertIsOff()
         compose.onNodeWithText("Number of rounds").assertIsDisplayed()
@@ -147,8 +147,8 @@ class UiUxScreensTest {
         compose.setContent {
             var create by remember { mutableStateOf(false) }
             ChessPairMobileTheme(dynamicColor = false, darkTheme = false) {
-                if (create) CreateTournamentDialog({}, { _, _, _, _, _, _, _, _, _, _, _, _, _ -> })
-                else HomeScreen(listOf(tournament), onSettings = {}, activeId = "t", onSelectTournament = {}, onCreateTournament = { _, _, _, _, _, _, _, _, _, _, _, _, _ -> create = true }, onDeleteTournament = {})
+                if (create) CreateTournamentDialog({}, { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> })
+                else HomeScreen(listOf(tournament), onSettings = {}, activeId = "t", onSelectTournament = {}, onCreateTournament = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> create = true }, onDeleteTournament = {})
             }
         }
         capture("home")

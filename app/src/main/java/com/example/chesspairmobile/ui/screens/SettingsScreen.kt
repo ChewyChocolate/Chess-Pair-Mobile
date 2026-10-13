@@ -190,22 +190,16 @@ fun SettingsScreen(
                 }) { Text(if (scoringSaved) "Scoring defaults saved" else "Save scoring defaults") }
                 Spacer(Modifier.height(12.dp))
 
-                LabeledCheckbox("Avoid club pairings by default", settings.defaultAvoidClubs) {
-                    scope.launch { preferences.setDefaultAvoidClubs(it) }
-                }
-
-                Spacer(Modifier.height(8.dp))
-
                 Text("Default acceleration", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(4.dp))
                 SingleChoiceSegmentedButtonRow {
-                    AccelerationMode.entries.forEachIndexed { idx, mode ->
+                    listOf(AccelerationMode.NONE, AccelerationMode.BAKU).forEachIndexed { idx, mode ->
                         SegmentedButton(
                             selected = settings.defaultAcceleration == mode,
                             onClick = {
                                 scope.launch { preferences.setDefaultAcceleration(mode) }
                             },
-                            shape = SegmentedButtonDefaults.itemShape(idx, AccelerationMode.entries.size),
+                            shape = SegmentedButtonDefaults.itemShape(idx, 2),
                             label = { Text(when(mode) { AccelerationMode.NONE -> "None"; AccelerationMode.BAKU -> "Baku"; AccelerationMode.LIM -> "Lim" }) }
                         )
                     }

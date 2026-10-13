@@ -96,7 +96,7 @@ class PairingEngineTest {
         val players = (1..5).map { player("p$it") }
         val matches = generateRoundRobin(players, round = 1)
         assertEquals(3, matches.size) // 2 real + 1 bye
-        assertEquals(1, matches.count { it.result == MatchResult.BYE })
+        assertEquals(1, matches.count { it.result == MatchResult.REST })
     }
 
     @Test
@@ -138,22 +138,13 @@ class PairingEngineTest {
     }
 
     @Test
-    fun `generateFideDutch does not repeat opponents from previous rounds`() {
+    fun `generateFideDutch does not repeat opponents from completed rounds`() {
         val players = (1..4).map { player("p$it", rating = 1500 + it) }
         val r1 = generateFideDutch(players, emptyList(), 1, 5, 1.0, 0.5, 0.0, false, emptyList())
-        val r1Pairs = r1.filter { it.result == null }
-            .map { setOfNotNull(it.whiteId, it.blackId) }
+            .map { it.copy(result = MatchResult.DRAW) }
         val r2 = generateFideDutch(players, r1, 2, 5, 1.0, 0.5, 0.0, false, emptyList())
-        val r2Pairs = r2.filter { it.result == null }
-            .map { setOfNotNull(it.whiteId, it.blackId) }
-        // In a 4-player Swiss, every player must face every other over time, but
-        // not in consecutive rounds. Verify r2 doesn't contain a pair that already
-        // happened in r1 *unless* the engine had no alternative.
-        // For 4 players, the only way to avoid a rematch is downfloat (not possible here),
-        // so we just check the r2 pairing is well-formed.
-        r2Pairs.forEach { pair ->
-            assertEquals(2, pair.size)
-        }
+        val old = r1.map { setOf(it.whiteId, it.blackId) }.toSet()
+        assertTrue(r2.none { setOf(it.whiteId, it.blackId) in old })
     }
 
     @Test
@@ -172,19 +163,17 @@ class PairingEngineTest {
     }
 
     @Test
-    fun `applyAcceleration returns players unchanged for NONE mode`() {
+    fun `NONE acceleration preserves the opening field`() {
         val players = (1..8).map { player("p$it", rating = 1500 + it) }
-        val out = applyAcceleration(players, AccelerationMode.NONE)
-        assertEquals(players, out)
+        val out = generateFideDutch(players, emptyList(), 1, 5, 1.0, 0.5, 0.0, false, emptyList(), AccelerationMode.NONE)
+        assertEquals(players.map { it.id }.toSet(), out.flatMap { listOfNotNull(it.whiteId, it.blackId) }.toSet())
     }
 
     @Test
-    fun `applyAcceleration produces four groups for BAKU`() {
+    fun `BAKU acceleration preserves the opening field`() {
         val players = (1..8).map { player("p$it", rating = 1500 + it * 100) }
-        val out = applyAcceleration(players, AccelerationMode.BAKU)
-        assertEquals(8, out.size)
-        // All original players must still be present
-        assertEquals(players.map { it.id }.toSet(), out.map { it.id }.toSet())
+        val out = generateFideDutch(players, emptyList(), 1, 5, 1.0, 0.5, 0.0, false, emptyList(), AccelerationMode.BAKU)
+        assertEquals(players.map { it.id }.toSet(), out.flatMap { listOfNotNull(it.whiteId, it.blackId) }.toSet())
     }
 
     @Test
@@ -219,30 +208,9 @@ class PairingEngineTest {
         assertEquals(setOf("p1", "p2"), pair)
     }
 
-    @Test
-    fun `generateRoundRobin with avoidClubPairings issues a bye when same-club pair is forced`() {
-        // With 4 players (p1=A, p2=A, p3=B, p4=C), the standard rotation forces
-        // p1 and p2 to play each other in round 3. With avoidClubPairings the engine
-        // should either swap opponents to avoid the club clash or issue BYEs — but never
-        // pair same-club players and never drop a player.
-        val players = listOf(
-            player("p1").copy(club = "A"),
-            player("p2").copy(club = "A"),
-            player("p3").copy(club = "B"),
-            player("p4").copy(club = "C")
-        )
-        for (round in 1..3) {
-            val matches = generateRoundRobin(players, round = round, avoidClubPairings = true)
-            val realMatches = matches.filter { it.blackId != null }
-            realMatches.forEach { m ->
-                val w = players.first { it.id == m.whiteId }
-                val b = players.first { it.id == m.blackId }
-                assertFalse("Same-club pair in round $round: $w vs $b", w.club == b.club)
-            }
-            // Every round must cover all 4 players (either via match or BYE), never drop one
-            val covered = matches.flatMap { listOfNotNull(it.whiteId, it.blackId) }.toSet()
-            assertEquals("Round $round should cover all 4 players", 4, covered.size)
-        }
+    @Test(expected = PairingException::class)
+    fun `round robin rejects club avoidance instead of replacing games with byes`() {
+        generateRoundRobin((1..4).map { player("p$it").copy(club = "A") }, 1, true)
     }
 
     @Test

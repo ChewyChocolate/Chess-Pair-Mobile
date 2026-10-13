@@ -1,462 +1,242 @@
 package com.example.chesspairmobile.logic
 
 import com.example.chesspairmobile.data.models.*
-import java.util.UUID
 import kotlin.math.abs
 
-/**
- * FIDE Dutch System pairings (C.04).
- * This engine is used when the tournament type is SWISS and
- * the tournament is not a team event.
- *
- * Implements:
- *  - Score brackets with S1/S2 splitting
- *  - Max-pair via backtracking search within brackets
- *  - Color allocation with absolute preferences per FIDE (balance >=2 or last two same)
- *  - Float (downfloat/upfloat) tracking
- *  - Acceleration-aware round 1
- *  - Robust leftover handling (no second bye, no dropped players)
- */
-
-private fun isAbsoluteDueWhite(bal: Int, seq: List<Char>): Boolean =
-    bal <= -2 || (seq.size >= 2 && seq[seq.size - 2] == 'B' && seq[seq.size - 1] == 'B')
-
-private fun isAbsoluteDueBlack(bal: Int, seq: List<Char>): Boolean =
-    bal >= 2 || (seq.size >= 2 && seq[seq.size - 2] == 'W' && seq[seq.size - 1] == 'W')
-
-@Suppress("UNUSED_PARAMETER")
+/** Dutch bracket search. Absolute restrictions are never relaxed to obtain a round. */
 fun generateFideDutch(
-    players: List<Player>,
-    matches: List<Match>,
-    round: Int,
-    totalRounds: Int,
-    pointsForWin: Double,
-    pointsForDraw: Double,
-    pointsForLoss: Double,
-    avoidClubPairings: Boolean,
-    forcedPairings: List<ForcedPairing>,
-    accelerationMode: AccelerationMode = AccelerationMode.NONE
+    players: List<Player>, matches: List<Match>, round: Int, totalRounds: Int,
+    pointsForWin: Double, pointsForDraw: Double, pointsForLoss: Double,
+    avoidClubPairings: Boolean, forcedPairings: List<ForcedPairing>,
+    accelerationMode: AccelerationMode = AccelerationMode.NONE, initialColour: Char = 'W'
 ): List<Match> {
-    val data = calculateScores(players, matches, pointsForWin, pointsForDraw, pointsForLoss)
-    val resultMatches = mutableListOf<Match>()
-    var boardNumber = 1
-    val pairedSet = mutableSetOf<String>()
-
-    // Process existing round matches and forced pairings first
-    val existing = matches.filter { it.round == round }
-    if (existing.isNotEmpty()) {
-        boardNumber = (existing.maxOfOrNull { it.boardNumber ?: 0 } ?: 0) + 1
-        existing.forEach { m ->
-            m.whiteId?.let { pairedSet.add(it) }
-            m.blackId?.let { pairedSet.add(it) }
+    if (initialColour !in listOf('W', 'B')) throw PairingException("Choose White or Black for the initial colour.")
+    if (round !in 1..totalRounds) throw PairingException("The round must be within the announced tournament length.")
+    if (avoidClubPairings) throw PairingException("FIDE Dutch pairing does not include club avoidance. Turn off club avoidance.")
+    if (accelerationMode == AccelerationMode.LIM) throw PairingException("Lim acceleration is unsupported. Select None or Baku.")
+    if (accelerationMode == AccelerationMode.BAKU && (pointsForLoss != 0.0 || pointsForWin != pointsForDraw * 2)) {
+        throw PairingException("Baku requires a win to equal two draws and a loss to score zero.")
+    }
+    if (matches.any { it.round < round && it.result == null }) throw PairingException("Complete previous-round results before pairing.")
+    val historicalIds = matches.flatMap { listOfNotNull(it.whiteId, it.blackId) }.toSet()
+    val seeded = withPairingNumbers(players.filter { it.pairingNumber > 0 || it.id in historicalIds || (it.active && !it.withdrawn) })
+    val real = calculateScores(seeded, matches, pointsForWin, pointsForDraw, pointsForLoss, round - 1)
+    val data = real.copy(scores = real.scores.toMutableMap())
+    if (accelerationMode == AccelerationMode.BAKU) {
+        seeded.forEach { p -> data.scores[p.id] = data.scores.getValue(p.id) + bakuVirtualPoints(p.pairingNumber, seeded.size, round, totalRounds, pointsForWin) }
+        // Float directions use the pairing scores of the round in which the players met.
+        for (previous in 1 until round) {
+            val before = calculateScores(seeded, matches, pointsForWin, pointsForDraw, pointsForLoss, previous - 1)
+            matches.filter { it.round == previous && isPlayedResult(it.result) && it.whiteId != null && it.blackId != null }.forEach { m ->
+                fun score(id: String): Double {
+                    val p = seeded.first { it.id == id }
+                    return (before.scores[id] ?: 0.0) + bakuVirtualPoints(p.pairingNumber, seeded.size, previous, totalRounds, pointsForWin)
+                }
+                val comparison = score(m.whiteId!!).compareTo(score(m.blackId!!))
+                data.floatHistory[m.whiteId]?.set(previous - 1, -comparison)
+                data.floatHistory[m.blackId]?.set(previous - 1, comparison)
+            }
         }
     }
-
+    val top = if (round == totalRounds) seeded.filter { (real.scores[it.id] ?: 0.0) > (round - 1) * pointsForWin / 2 }.map { it.id }.toSet() else emptySet()
+    val rank = compareByDescending<Player> { data.scores[it.id] ?: 0.0 }.thenBy { it.pairingNumber }
+    val pool = seeded.filter { it.active && !it.withdrawn && round !in it.requestedByes }.sortedWith(rank)
+    val reserved = matches.filter { it.round == round }.flatMap { listOfNotNull(it.whiteId, it.blackId) }.toMutableSet()
+    val forced = mutableListOf<Match>()
     forcedPairings.forEach { fp ->
-        resultMatches.add(Match(round = round, whiteId = fp.whiteId, blackId = fp.blackId, boardNumber = boardNumber++))
-        pairedSet.add(fp.whiteId)
-        pairedSet.add(fp.blackId)
-    }
-
-    // Build available player pool
-    val compareBySeed = compareByDescending<Player> { data.scores[it.id] ?: 0.0 }
-        .thenByDescending {
-            if (it.pairingNumber > 0) Int.MAX_VALUE - it.pairingNumber
-            else it.rating ?: 0
+        val a = pool.find { it.id == fp.whiteId }
+        val b = pool.find { it.id == fp.blackId }
+        if (a == null || b == null || a.id in reserved || b.id in reserved || !legalSwissPair(a, b, data, top)) {
+            throw PairingException("A forced pairing violates player availability, opponent or colour restrictions.")
         }
-
-    var available = players
-        .filter { p -> p.active && !p.withdrawn && !p.requestedByes.contains(round) && p.id !in pairedSet }
-        .sortedWith(compareBySeed)
-
-    if (available.isEmpty()) return resultMatches
-
-    // Acceleration for round 1
-    if (round == 1 && accelerationMode != AccelerationMode.NONE && available.size >= 4) {
-        available = applyAcceleration(available, accelerationMode)
-    }
-
-    // Handle odd number — assign bye to lowest-score, non-byed player; remember we already gave a bye
-    var hasBye = false
-    if (available.size % 2 != 0) {
-        val byeIdx = available.indices.lastOrNull { available[it].id !in data.byes } ?: available.size - 1
-        val byePlayer = available[byeIdx]
-        resultMatches.add(Match(round = round, whiteId = byePlayer.id, blackId = null, result = MatchResult.BYE, boardNumber = 999))
-        pairedSet.add(byePlayer.id)
-        available = available.toMutableList().also { it.removeAt(byeIdx) }
-        hasBye = true
-    }
-
-    if (available.isEmpty()) return resultMatches
-
-    // ---- FIDE Dutch Pairing (global optimum, rematch + large floats strictly forbidden if possible) ----
-    // FIDE: try to keep score diff <=1.0 (adjacent brackets). Only float further if needed.
-    fun tryPairing(maxGap: Double, allowRematch: Boolean) =
-        findBestGlobalPairing(available, data, avoidClubPairings, allowRematch, maxScoreDiff = maxGap)
-
-    val strictGap1 = tryPairing(1.0, false)
-    val strictGap1Perfect = strictGap1.size * 2 == available.size
-    val bestPairs: List<Pair<Player, Player>> = when {
-        strictGap1Perfect -> strictGap1
-        else -> {
-            val strictAny = tryPairing(Double.MAX_VALUE, false)
-            val strictAnyPerfect = strictAny.size * 2 == available.size
-            if (strictAnyPerfect) strictAny
-            else {
-                val allowGap1 = tryPairing(1.0, true)
-                if (allowGap1.size * 2 == available.size) allowGap1
-                else tryPairing(Double.MAX_VALUE, true)
-            }
+        if (a.id !in top && b.id !in top && (colourPreference(a.id, data).let { it.strength == 3 && it.colour != 'W' } || colourPreference(b.id, data).let { it.strength == 3 && it.colour != 'B' })) {
+            throw PairingException("The forced colours violate an absolute colour preference.")
         }
+        forced.add(Match(round = round, whiteId = a.id, blackId = b.id, isManual = true))
+        reserved.add(a.id); reserved.add(b.id)
     }
-
-    // Leftover are those not covered by bestPairs
-    val pairedIds = bestPairs.flatMap { listOf(it.first.id, it.second.id) }.toSet()
-    var leftover = available.filter { it.id !in pairedIds }.toMutableList()
-
-    bestPairs.forEach { (p1, p2) ->
-        val colors = assignColors(p1, p2, data)
-        val (whiteId, blackId) = if (colors.first == 'W') p1.id to p2.id else p2.id to p1.id
-        resultMatches.add(Match(round = round, whiteId = whiteId, blackId = blackId, boardNumber = boardNumber++))
+    val available = pool.filter { it.id !in reserved }
+    val search = DutchSearch(available, data, top, initialColour, rank)
+    val paired = search.solve() ?: throw PairingException("No legal Swiss round exists. The Chief Arbiter must resolve the pairing.")
+    val generated = forced + paired.pairs.map { (a, b) ->
+        val (first, second) = if (rank.compare(a, b) <= 0) a to b else b to a
+        val colours = assignColors(first, second, data, initialColour)
+        Match(round = round, whiteId = if (colours.first == 'W') first.id else second.id,
+            blackId = if (colours.first == 'W') second.id else first.id)
     }
-
-    // Final unpaired handling: at most one BYE, never two
-    when {
-        leftover.size == 1 && !hasBye -> {
-            val byePlayer = leftover[0]
-            resultMatches.add(Match(round = round, whiteId = byePlayer.id, blackId = null, result = MatchResult.BYE, boardNumber = 999))
-            leftover.clear()
-        }
-        leftover.size == 1 && hasBye -> {
-            // Second unpaired with bye already given – keep unpaired (no second BYE). This means no perfect matching without rematch was found;
-            // the strict matching left one unpaired to avoid rematch. Allow rematch fallback already tried; if still 1 left, leave for manual pairing.
-        }
-        leftover.size > 1 -> {
-            // More than one leftover – try to pair them among themselves without rematch
-            // This can happen when strict matching couldn't find perfect due to rematch bans; we already tried fallback, so just leave as is
-            // As last resort, try to force-pair remaining via any means (already done in fallback)
-        }
-    }
-
-    return resultMatches
+    val numbered = generated.sortedWith(compareByDescending<Match> { maxOf(data.scores[it.whiteId] ?: 0.0, data.scores[it.blackId] ?: 0.0) }
+        .thenByDescending { (data.scores[it.whiteId] ?: 0.0) + (data.scores[it.blackId] ?: 0.0) }
+        .thenBy { minOf(seeded.first { p -> p.id == it.whiteId }.pairingNumber, seeded.first { p -> p.id == it.blackId }.pairingNumber) })
+        .mapIndexed { index, m -> m.copy(boardNumber = index + 1) }
+    return numbered + listOfNotNull(paired.bye?.let { Match(round = round, whiteId = it.id, result = MatchResult.BYE, boardNumber = numbered.size + 1) })
 }
 
-// ----- Bracket max-matching (bipartite S1 vs S2) -----
-private fun bestBracketPairing(
-    s1: List<Player>,
-    s2: List<Player>,
-    data: ScoreData,
-    avoidClub: Boolean
-): List<Pair<Player, Player>> {
-    if (s1.isEmpty() || s2.isEmpty()) return emptyList()
-    var best: List<Pair<Player, Player>> = emptyList()
-    var bestScore = Int.MIN_VALUE
+private data class BracketCandidate(val pairs: List<Pair<Player, Player>>, val outgoing: List<Player>)
+private data class DutchRound(val pairs: List<Pair<Player, Player>>, val bye: Player?, val quality: List<Double>)
 
-    fun dfs(idx: Int, cur: MutableList<Pair<Player, Player>>, used: MutableSet<String>, score: Int) {
-        if (idx == s1.size) {
-            if (cur.size > best.size || (cur.size == best.size && score > bestScore)) {
-                best = cur.toList()
-                bestScore = score
+private class DutchSearch(
+    private val players: List<Player>, private val data: ScoreData, private val topscorers: Set<String>,
+    private val initialColour: Char, private val rank: Comparator<Player>
+) {
+    private val groups = players.groupBy { data.scores[it.id] ?: 0.0 }.toSortedMap(reverseOrder()).values.toList()
+    private val cache = mutableMapOf<String, DutchRound?>()
+    private var visited = 0
+    private val width = players.size
+    private fun step() {
+        if (++visited > 1_000_000 || Thread.currentThread().isInterrupted) {
+            throw PairingException("The Swiss search limit was reached. The arbiter must resolve this round; no partial pairing was saved.")
+        }
+    }
+    private fun score(p: Player) = data.scores[p.id] ?: 0.0
+    private fun floated(p: Player, ago: Int, direction: Int) = data.floatHistory[p.id].orEmpty().let { history -> history.getOrNull(history.size - ago) == direction }
+    private fun vector(values: List<Double>) = values.sortedDescending() + List((width - values.size).coerceAtLeast(0)) { 0.0 }
+    private fun compare(a: List<Double>, b: List<Double>): Int {
+        for (i in 0 until minOf(a.size, b.size)) if (a[i] != b[i]) return a[i].compareTo(b[i])
+        return a.size.compareTo(b.size)
+    }
+    fun solve(): DutchRound? = search(0, emptyList())
+    private fun search(index: Int, incoming: List<Player>): DutchRound? {
+        step()
+        if (index == groups.size) {
+            return when {
+                incoming.isEmpty() -> DutchRound(emptyList(), null, emptyList())
+                incoming.size == 1 && incoming[0].id !in data.byes -> DutchRound(emptyList(), incoming[0], emptyList())
+                else -> null
             }
-            return
         }
-        val p1 = s1[idx]
-        // Try pairing p1 with each unused p2
-        for (p2 in s2) {
-            if (p2.id in used) continue
-            val q = pairQuality(p1, p2, data, avoidClub)
-            if (q < 0) continue // hard rematch ban
-            used.add(p2.id)
-            cur.add(p1 to p2)
-            dfs(idx + 1, cur, used, score + q)
-            cur.removeAt(cur.lastIndex)
-            used.remove(p2.id)
-        }
-        // Also try leaving p1 unpaired (downfloat)
-        dfs(idx + 1, cur, used, score)
-    }
-    dfs(0, mutableListOf(), mutableSetOf(), 0)
-    return best
-}
-
-// ----- Leftover pairing among themselves (general graph) -----
-private fun bestLeftoverPairing(
-    players: List<Player>,
-    data: ScoreData,
-    avoidClub: Boolean
-): List<Pair<Player, Player>> {
-    if (players.size < 2) return emptyList()
-    var best: List<Pair<Player, Player>> = emptyList()
-    var bestScore = Int.MIN_VALUE
-    val used = BooleanArray(players.size)
-
-    fun dfs(cur: MutableList<Pair<Player, Player>>, score: Int) {
-        var first = -1
-        for (i in players.indices) if (!used[i]) { first = i; break }
-        if (first == -1) {
-            if (cur.size > best.size || (cur.size == best.size && score > bestScore)) {
-                best = cur.toList(); bestScore = score
+        val key = "$index:" + incoming.joinToString(",") { it.id }
+        if (cache.containsKey(key)) return cache[key]
+        val residents = groups[index]
+        val bracket = (incoming + residents).sortedWith(rank)
+        var best: DutchRound? = null
+        val maxPairs = minOf(bracket.size / 2, if (incoming.isEmpty()) bracket.size / 2 else residents.size)
+        // Article 3.8: compare criteria lexicographically; equal candidates retain generation order.
+        for (pairCount in maxPairs downTo 0) {
+            for (candidate in candidates(incoming, residents, pairCount)) {
+                val tail = search(index + 1, candidate.outgoing) ?: continue
+                val quality = quality(candidate, incoming, tail)
+                if (best == null || compare(quality, best.quality) < 0) {
+                    best = DutchRound(candidate.pairs + tail.pairs, tail.bye, quality)
+                    if (ideal(candidate, incoming, residents, tail, index, maxPairs)) {
+                        cache[key] = best
+                        return best
+                    }
+                }
             }
-            return
         }
-        // leave first unpaired
-        used[first] = true
-        dfs(cur, score)
-        used[first] = false
-        // try pair first with any later unused
-        for (j in first + 1 until players.size) if (!used[j]) {
-            val q = pairQuality(players[first], players[j], data, avoidClub)
-            if (q < 0) continue
-            used[first] = true; used[j] = true
-            cur.add(players[first] to players[j])
-            dfs(cur, score + q)
-            cur.removeAt(cur.lastIndex)
-            used[first] = false; used[j] = false
-        }
+        cache[key] = best
+        return best
     }
-    dfs(mutableListOf(), 0)
-    return best
-}
-
-// Fallback: allow any pairing (including rematch) with heavy penalty, to avoid dropped players
-private fun bestLeftoverPairingAllowAny(
-    players: List<Player>,
-    data: ScoreData
-): List<Pair<Player, Player>> {
-    if (players.size < 2) return emptyList()
-    var best: List<Pair<Player, Player>> = emptyList()
-    var bestScore = Int.MIN_VALUE
-    val used = BooleanArray(players.size)
-
-    fun dfs(cur: MutableList<Pair<Player, Player>>, score: Int) {
-        var first = -1
-        for (i in players.indices) if (!used[i]) { first = i; break }
-        if (first == -1) {
-            if (cur.size > best.size || (cur.size == best.size && score > bestScore)) {
-                best = cur.toList(); bestScore = score
+    private fun candidates(incoming: List<Player>, residents: List<Player>, count: Int): Sequence<BracketCandidate> = sequence {
+        if (incoming.isEmpty()) { yieldAll(homogeneous(residents, count)); return@sequence }
+        for (m1 in minOf(incoming.size, residents.size, count) downTo 0) {
+            for (chosen in combinations(incoming, m1)) {
+                val limbo = incoming.filter { it !in chosen }
+                for (mdp in matchSubgroups(chosen, residents)) {
+                    val remainder = residents.filter { p -> mdp.none { it.second.id == p.id } }
+                    for (rest in homogeneous(remainder, count - m1)) {
+                        yield(BracketCandidate(mdp + rest.pairs, (limbo + rest.outgoing).sortedWith(rank)))
+                    }
+                }
             }
-            return
-        }
-        used[first] = true
-        dfs(cur, score)
-        used[first] = false
-        for (j in first + 1 until players.size) if (!used[j]) {
-            val q = pairQualityAllowAny(players[first], players[j], data)
-            used[first] = true; used[j] = true
-            cur.add(players[first] to players[j])
-            dfs(cur, score + q)
-            cur.removeAt(cur.lastIndex)
-            used[first] = false; used[j] = false
         }
     }
-    dfs(mutableListOf(), 0)
-    return best
-}
-
-private fun pairQualityAllowAny(p1: Player, p2: Player, data: ScoreData): Int {
-    // Same as pairQuality but no hard bans; rematch and club are heavy penalties not bans
-    var score = 100
-    val isRematch = data.played[p1.id]?.contains(p2.id) == true
-    if (isRematch) score -= 500
-    if (!p1.club.isNullOrEmpty() && !p2.club.isNullOrEmpty() && p1.club == p2.club) score -= 300
-    val p1Score = data.scores[p1.id] ?: 0.0
-    val p2Score = data.scores[p2.id] ?: 0.0
-    val diff = abs(p1Score - p2Score)
-    if (diff < 0.001) score += 50
-    else score -= (diff * 60).toInt()
-    val seed1 = if (p1.pairingNumber > 0) Int.MAX_VALUE - p1.pairingNumber else p1.rating ?: 0
-    val seed2 = if (p2.pairingNumber > 0) Int.MAX_VALUE - p2.pairingNumber else p2.rating ?: 0
-    score -= abs(seed1 - seed2) / 10
-    // color penalty soft
-    val bal1 = data.colorBalance[p1.id] ?: 0
-    val bal2 = data.colorBalance[p2.id] ?: 0
-    val seq1 = data.colorSequence[p1.id] ?: emptyList()
-    val seq2 = data.colorSequence[p2.id] ?: emptyList()
-    val absWhite1 = isAbsoluteDueWhite(bal1, seq1)
-    val absBlack1 = isAbsoluteDueBlack(bal1, seq1)
-    val absWhite2 = isAbsoluteDueWhite(bal2, seq2)
-    val absBlack2 = isAbsoluteDueBlack(bal2, seq2)
-    val opt1 = !absBlack1 && !absWhite2
-    val opt2 = !absWhite1 && !absBlack2
-    if (!opt1 && !opt2) score -= 300 else if (!opt1 || !opt2) score -= 50
-    return score
-}
-
-private fun findBestGlobalPairing(
-    players: List<Player>,
-    data: ScoreData,
-    avoidClub: Boolean,
-    allowRematch: Boolean,
-    maxScoreDiff: Double = Double.MAX_VALUE
-): List<Pair<Player, Player>> {
-    if (players.size < 2) return emptyList()
-    // Sort by score then seed for deterministic first choice
-    val sorted = players.sortedWith(
-        compareByDescending<Player> { data.scores[it.id] ?: 0.0 }
-            .thenByDescending { if (it.pairingNumber > 0) Int.MAX_VALUE - it.pairingNumber else it.rating ?: 0 }
-    )
-    val n = sorted.size
-    // Fast path for large tournaments – exhaustive search would be exponential
-    if (n > 16) {
-        val remaining = sorted.toMutableList()
-        val pairs = mutableListOf<Pair<Player, Player>>()
-        while (remaining.size >= 2) {
-            val first = remaining.removeAt(0)
-            var bestIdx = -1
-            var bestQ = Int.MIN_VALUE
-            for (i in remaining.indices) {
-                if (kotlin.math.abs((data.scores[first.id] ?: 0.0) - (data.scores[remaining[i].id] ?: 0.0)) > maxScoreDiff + 0.001) continue
-                val q = if (allowRematch) pairQualityAllowAny(first, remaining[i], data)
-                else pairQuality(first, remaining[i], data, avoidClub)
-                if (!allowRematch && q == -1) continue
-                if (q > bestQ) { bestQ = q; bestIdx = i }
+    private fun homogeneous(group: List<Player>, count: Int): Sequence<BracketCandidate> = sequence {
+        if (count > group.size / 2 || count < 0) return@sequence
+        val original1 = group.take(count)
+        val original2 = group.drop(count)
+        for (exchanges in 0..count) {
+            // Article 4.3: number, sum difference, largest departing BSN, smallest arriving BSN.
+            val changes = mutableListOf<Pair<List<Player>, List<Player>>>()
+            for (out in combinations(original1, exchanges)) for (`in` in combinations(original2, exchanges)) {
+                step(); changes.add(out to `in`)
             }
-            if (bestIdx != -1) {
-                val partner = remaining.removeAt(bestIdx)
-                pairs.add(first to partner)
+            changes.sortWith { a, b ->
+                fun sum(change: Pair<List<Player>, List<Player>>) = change.second.sumOf { group.indexOf(it) } - change.first.sumOf { group.indexOf(it) }
+                val difference = sum(a).compareTo(sum(b))
+                if (difference != 0) difference else {
+                    val out = compare(a.first.map { -group.indexOf(it).toDouble() }.sorted(), b.first.map { -group.indexOf(it).toDouble() }.sorted())
+                    if (out != 0) out else compare(a.second.map { group.indexOf(it).toDouble() }, b.second.map { group.indexOf(it).toDouble() })
+                }
             }
-            // else no valid partner without rematch/large-gap – leave first unpaired (will be downfloated/handled as leftover)
-        }
-        return pairs
-    }
-    val used = BooleanArray(n)
-    var best: List<Pair<Player, Player>> = emptyList()
-    var bestScore = Int.MIN_VALUE
-    var bestSize = -1
-
-    // Precompute pair scores, with gap filter
-    val scoreMat = Array(n) { IntArray(n) }
-    for (i in 0 until n) {
-        for (j in i + 1 until n) {
-            if (kotlin.math.abs((data.scores[sorted[i].id] ?: 0.0) - (data.scores[sorted[j].id] ?: 0.0)) > maxScoreDiff + 0.001) {
-                scoreMat[i][j] = -1
-                scoreMat[j][i] = -1
-                continue
+            for ((out, `in`) in changes) {
+                val s1 = (original1.filter { it !in out } + `in`).sortedWith(rank)
+                val s2 = (original2.filter { it !in `in` } + out).sortedWith(rank)
+                for (pairs in matchSubgroups(s1, s2)) {
+                    step()
+                    val paired = pairs.flatMap { listOf(it.first.id, it.second.id) }.toSet()
+                    yield(BracketCandidate(pairs, group.filter { it.id !in paired }))
+                }
             }
-            val q = if (allowRematch) pairQualityAllowAny(sorted[i], sorted[j], data)
-            else pairQuality(sorted[i], sorted[j], data, avoidClub)
-            scoreMat[i][j] = q
-            scoreMat[j][i] = q
         }
     }
-
-    fun dfs(cur: MutableList<Pair<Player, Player>>, curScore: Int) {
-        var first = -1
-        for (i in 0 until n) if (!used[i]) { first = i; break }
-        if (first == -1) {
-            if (cur.size > bestSize || (cur.size == bestSize && curScore > bestScore)) {
-                best = cur.toList()
-                bestSize = cur.size
-                bestScore = curScore
+    private fun matchSubgroups(s1: List<Player>, s2: List<Player>): Sequence<List<Pair<Player, Player>>> = sequence {
+        if (s1.isEmpty()) { yield(emptyList()); return@sequence }
+        val first = s1.first()
+        for (second in s2) {
+            step()
+            if (!legalSwissPair(first, second, data, topscorers)) continue
+            for (rest in matchSubgroups(s1.drop(1), s2.filter { it.id != second.id })) yield(listOf(first to second) + rest)
+        }
+    }
+    private fun <T> combinations(list: List<T>, count: Int): Sequence<List<T>> = sequence {
+        if (count == 0) { yield(emptyList()); return@sequence }
+        if (count > list.size) return@sequence
+        for (i in 0..list.size - count) {
+            step()
+            for (tail in combinations(list.drop(i + 1), count - 1)) yield(listOf(list[i]) + tail)
+        }
+    }
+    private fun colourCosts(pairs: List<Pair<Player, Player>>): List<Double> {
+        var imbalance = 0; var repeated = 0; var denied = 0; var strong = 0
+        for ((a0, b0) in pairs) {
+            val (a, b) = if (rank.compare(a0, b0) <= 0) a0 to b0 else b0 to a0
+            val colours = assignColors(a, b, data, initialColour)
+            for ((p, colour) in listOf(a to colours.first, b to colours.second)) {
+                if (abs((data.colorBalance[p.id] ?: 0) + if (colour == 'W') 1 else -1) > 2) imbalance++
+                if (!checkColorSequence(data.colorSequence[p.id].orEmpty(), colour)) repeated++
+                val pref = colourPreference(p.id, data)
+                if (pref.colour != null && pref.colour != colour) {
+                    denied++
+                    if (pref.strength == 2) strong++
+                }
             }
-            return
         }
-        // Prune: max possible additional pairs
-        val remaining = used.count { !it }
-        val maxAddPairs = remaining / 2
-        // Even if we pair all remaining, can we beat best?
-        if (cur.size + maxAddPairs < bestSize) return
-        if (cur.size + maxAddPairs == bestSize) {
-            val maxAddScore = maxAddPairs * 200
-            if (curScore + maxAddScore <= bestScore) return
-        }
-
-        // Try pairing first with each other unused, sorted by score descending
-        val candidates = mutableListOf<Pair<Int, Int>>()
-        for (j in 0 until n) if (!used[j] && j != first) {
-            val q = scoreMat[first][j]
-            if (!allowRematch && q == -1) continue // hard rematch ban
-            candidates.add(j to q)
-        }
-        candidates.sortByDescending { it.second }
-        for ((j, q) in candidates) {
-            used[first] = true; used[j] = true
-            cur.add(sorted[first] to sorted[j])
-            dfs(cur, curScore + q)
-            cur.removeAt(cur.lastIndex)
-            used[first] = false; used[j] = false
-        }
-        // Also try leaving first unpaired (for odd or when no perfect matching without rematch)
-        used[first] = true
-        dfs(cur, curScore)
-        used[first] = false
+        return listOf(imbalance.toDouble(), repeated.toDouble(), denied.toDouble(), strong.toDouble())
     }
-
-    dfs(mutableListOf(), 0)
-    return best
-}
-
-/** Assign colors to a pairing. Returns (p1Color, p2Color). */
-fun assignColors(p1: Player, p2: Player, data: ScoreData): Pair<Char, Char> {
-    val bal1 = data.colorBalance[p1.id] ?: 0
-    val bal2 = data.colorBalance[p2.id] ?: 0
-    val seq1 = data.colorSequence[p1.id] ?: emptyList()
-    val seq2 = data.colorSequence[p2.id] ?: emptyList()
-
-    // Absolute per FIDE: |balance|>=2 or last two same
-    val p1DueWhite = isAbsoluteDueWhite(bal1, seq1)
-    val p2DueWhite = isAbsoluteDueWhite(bal2, seq2)
-    val p1DueBlack = isAbsoluteDueBlack(bal1, seq1)
-    val p2DueBlack = isAbsoluteDueBlack(bal2, seq2)
-
-    // Strong preference (balance !=0 and not absolute, last not opposite extreme)
-    val p1StrongWhite = bal1 < 0 && !p1DueWhite && seq1.lastOrNull() != 'W'
-    val p2StrongWhite = bal2 < 0 && !p2DueWhite && seq2.lastOrNull() != 'W'
-    val p1StrongBlack = bal1 > 0 && !p1DueBlack && seq1.lastOrNull() != 'B'
-    val p2StrongBlack = bal2 > 0 && !p2DueBlack && seq2.lastOrNull() != 'B'
-
-    val option1Valid = !(p1DueBlack || p2DueWhite)
-    val option2Valid = !(p1DueWhite || p2DueBlack)
-
-    return when {
-        option1Valid && option2Valid -> {
-            val opt1Score = (if (p1StrongWhite) 2 else 0) + (if (p2StrongBlack) 2 else 0) + (if (!p1StrongWhite && !p1StrongBlack && bal1 < 0) 1 else 0) + (if (!p2StrongWhite && !p2StrongBlack && bal2 > 0) 1 else 0)
-            val opt2Score = (if (p1StrongBlack) 2 else 0) + (if (p2StrongWhite) 2 else 0) + (if (!p1StrongWhite && !p1StrongBlack && bal1 > 0) 1 else 0) + (if (!p2StrongWhite && !p2StrongBlack && bal2 < 0) 1 else 0)
-            if (opt1Score >= opt2Score) 'W' to 'B' else 'B' to 'W'
+    private fun quality(c: BracketCandidate, incoming: List<Player>, tail: DutchRound): List<Double> {
+        val incomingIds = incoming.map { it.id }.toSet()
+        val residentOut = c.outgoing.filter { it.id !in incomingIds }
+        val mdpPairs = c.pairs.filter { it.first.id in incomingIds }
+        val opponents = mdpPairs.map { it.second }
+        fun differences(ago: Int, incomingFloat: Boolean) = mdpPairs.filter { floated(if (incomingFloat) it.first else it.second, ago, if (incomingFloat) -1 else 1) }.map { abs(score(it.first) - score(it.second)) }
+        return listOf(tail.bye?.let(::score) ?: 0.0, c.outgoing.size.toDouble()) + vector(c.outgoing.map(::score)) +
+            // C8 checks the following bracket's C5-C7 before lower priorities in this bracket.
+            (if (tail.quality.isEmpty()) List(width + 2) { 0.0 } else tail.quality.take(width + 2)) +
+            listOf(if (c.outgoing.size == 1 && c.outgoing[0].id == tail.bye?.id) (data.unplayedRounds[tail.bye.id] ?: 0).toDouble() else 0.0) +
+            colourCosts(c.pairs) + listOf(
+                residentOut.count { floated(it, 1, -1) }.toDouble(), opponents.count { floated(it, 1, 1) }.toDouble(),
+                residentOut.count { floated(it, 2, -1) }.toDouble(), opponents.count { floated(it, 2, 1) }.toDouble()) +
+            vector(differences(1, true)) + vector(differences(1, false)) + vector(differences(2, true)) + vector(differences(2, false))
+    }
+    private fun ideal(c: BracketCandidate, incoming: List<Player>, residents: List<Player>, tail: DutchRound, index: Int, maxPairs: Int): Boolean {
+        // A proved lower bound allows the common perfect candidate to finish without enumerating permutations.
+        if (c.pairs.size != maxPairs) return false
+        if (c.outgoing.isNotEmpty() && index != groups.lastIndex) return false
+        val lowestBye = players.filter { it.id !in data.byes }.minOfOrNull(::score)
+        if (tail.bye != null && score(tail.bye) != lowestBye) return false
+        if (tail.bye != null && (data.unplayedRounds[tail.bye.id] ?: 0) != players.filter { it.id !in data.byes && score(it) == lowestBye }.minOfOrNull { data.unplayedRounds[it.id] ?: 0 }) return false
+        val prefs = (incoming + residents).map { colourPreference(it.id, data) }
+        fun deniedBound(strongOnly: Boolean): Int {
+            val relevant = prefs.filter { !strongOnly || it.strength == 2 }
+            val difference = abs(relevant.count { it.colour == 'W' } - relevant.count { it.colour == 'B' })
+            val noPreference = prefs.size - relevant.count { it.colour != null }
+            return maxOf(0, (difference - noPreference - c.outgoing.size + 1) / 2)
         }
-        option1Valid -> 'W' to 'B'
-        option2Valid -> 'B' to 'W'
-        // Neither valid (constraint violation): minimize damage - pick least absolute violation
-        else -> if (bal1 <= bal2) 'B' to 'W' else 'W' to 'B'
+        if (colourCosts(c.pairs) != listOf(0.0, 0.0, deniedBound(false).toDouble(), deniedBound(true).toDouble())) return false
+        val incomingIds = incoming.map { it.id }.toSet()
+        if (c.outgoing.any { it.id !in incomingIds && (floated(it, 1, -1) || floated(it, 2, -1)) }) return false
+        if (c.pairs.any { it.first.id in incomingIds && (floated(it.second, 1, 1) || floated(it.second, 2, 1) || floated(it.first, 1, -1) || floated(it.first, 2, -1)) }) return false
+        return true
     }
-}
-
-/** Score how good a pairing is. Higher = better. Returns -1 if hard-invalid (rematch). */
-fun pairQuality(p1: Player, p2: Player, data: ScoreData, avoidClubPairings: Boolean): Int {
-    // Hard ban: rematch
-    if (data.played[p1.id]?.contains(p2.id) == true) return -1
-
-    var score = 100
-    // Club is soft constraint – heavy penalty not hard ban (avoid dropping players)
-    if (avoidClubPairings && !p1.club.isNullOrEmpty() && !p2.club.isNullOrEmpty() && p1.club == p2.club) {
-        score -= 500
-    }
-
-    // Soft color penalty (not hard ban) – absolute violations are penalized heavily but still allowed if needed
-    val bal1 = data.colorBalance[p1.id] ?: 0
-    val bal2 = data.colorBalance[p2.id] ?: 0
-    val seq1 = data.colorSequence[p1.id] ?: emptyList()
-    val seq2 = data.colorSequence[p2.id] ?: emptyList()
-    val p1AbsWhite = isAbsoluteDueWhite(bal1, seq1)
-    val p2AbsWhite = isAbsoluteDueWhite(bal2, seq2)
-    val p1AbsBlack = isAbsoluteDueBlack(bal1, seq1)
-    val p2AbsBlack = isAbsoluteDueBlack(bal2, seq2)
-    val option1 = !p1AbsBlack && !p2AbsWhite
-    val option2 = !p1AbsWhite && !p2AbsBlack
-    if (!option1 && !option2) score -= 300
-    else if (!option1 || !option2) score -= 50
-
-    // Quality: prefer same score bracket – strong gap penalty (FIDE: minimize downfloats)
-    val p1Score = data.scores[p1.id] ?: 0.0
-    val p2Score = data.scores[p2.id] ?: 0.0
-    val diff = abs(p1Score - p2Score)
-    if (diff < 0.001) score += 50
-    else score -= (diff * 60).toInt() // diff 0.5=-30, 1.0=-60, 2.0=-120 – heavily discourages large floats
-
-    // Prefer pairing players closer in rating/seed (FIDE principle)
-    val seed1 = if (p1.pairingNumber > 0) Int.MAX_VALUE - p1.pairingNumber else p1.rating ?: 0
-    val seed2 = if (p2.pairingNumber > 0) Int.MAX_VALUE - p2.pairingNumber else p2.rating ?: 0
-    score -= abs(seed1 - seed2) / 10
-
-    return score
 }

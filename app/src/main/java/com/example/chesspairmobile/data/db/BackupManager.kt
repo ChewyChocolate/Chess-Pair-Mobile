@@ -43,7 +43,7 @@ object BackupManager {
 
     private fun open(context: Context, file: File): AppDatabase =
         Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, file.absolutePath)
-            .addMigrations(AppDatabase.MIGRATION_2_3)
+            .addMigrations(AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
             .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)
             .build()
 
@@ -61,7 +61,7 @@ object BackupManager {
         val converters = Converters()
         require(snapshot.teams.all { team -> converters.toStringList(team.playerIds).all { players[it]?.tournamentId == team.tournamentId } }) { "Backup contains missing team members" }
         require(snapshot.matches.all { match -> listOfNotNull(match.whiteId, match.blackId).all { players[it]?.tournamentId == match.tournamentId } }) { "Backup contains missing players" }
-        require(snapshot.tournaments.all { it.status in listOf("SETUP", "ACTIVE", "COMPLETED") && it.currentRound >= 0 && it.totalRounds > 0 && it.pointsForWin.isFinite() && it.pointsForDraw.isFinite() && it.pointsForLoss.isFinite() }) { "Backup contains invalid tournament settings" }
+        require(snapshot.tournaments.all { it.status in listOf("SETUP", "ACTIVE", "COMPLETED") && it.initialColour in listOf("W", "B") && it.currentRound >= 0 && it.totalRounds > 0 && it.pointsForWin.isFinite() && it.pointsForDraw.isFinite() && it.pointsForLoss.isFinite() }) { "Backup contains invalid tournament settings" }
     }
 
     suspend fun export(context: Context, uri: Uri, database: AppDatabase = AppDatabase.getInstance(context)) = withContext(Dispatchers.IO) {
@@ -91,7 +91,7 @@ object BackupManager {
                 incoming.inputStream().use { java.io.DataInputStream(it).readFully(header) }
                 require(header.contentEquals("SQLite format 3\u0000".toByteArray(Charsets.US_ASCII))) { "Choose a valid ChessPair database backup" }
                 android.database.sqlite.SQLiteDatabase.openDatabase(incoming.absolutePath, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use { sqlite ->
-                    require(sqlite.version in 2..3) { "This backup version is not supported" }
+                    require(sqlite.version in 2..4) { "This backup version is not supported" }
                     val tables = mutableSetOf<String>()
                     sqlite.rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'", null).use { cursor ->
                         while (cursor.moveToNext()) tables.add(cursor.getString(0))

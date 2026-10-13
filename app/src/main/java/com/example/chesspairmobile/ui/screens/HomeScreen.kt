@@ -39,7 +39,7 @@ fun HomeScreen(
     onSettings: () -> Unit = {},
     activeId: String?,
     onSelectTournament: (String) -> Unit,
-    onCreateTournament: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode, Boolean) -> Unit,
+    onCreateTournament: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode, Boolean, String) -> Unit,
     onDeleteTournament: (String) -> Unit,
     defaultPoints: Triple<Double, Double, Double> = Triple(1.0, 0.5, 0.0),
     defaultAvoidClubs: Boolean = false,
@@ -157,8 +157,8 @@ fun HomeScreen(
     if (showCreateDialog) {
         CreateTournamentDialog(
             onDismiss = { showCreateDialog = false },
-            onCreate = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode, swissExtra ->
-                onCreateTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode, swissExtra)
+            onCreate = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode, swissExtra, initialColour ->
+                onCreateTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode, swissExtra, initialColour)
                 showCreateDialog = false
             },
             defaultPoints = defaultPoints,
@@ -234,7 +234,7 @@ fun TournamentTypeChip(type: String) {
 @Composable
 fun CreateTournamentDialog(
     onDismiss: () -> Unit,
-    onCreate: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode, Boolean) -> Unit,
+    onCreate: (String, TournamentType, Boolean, Int, String?, Triple<Double, Double, Double>, Boolean, Boolean, Boolean, String?, List<TiebreakType>, AccelerationMode, Boolean, String) -> Unit,
     defaultPoints: Triple<Double, Double, Double> = Triple(1.0, 0.5, 0.0),
     defaultAvoidClubs: Boolean = false,
     defaultAcceleration: AccelerationMode = AccelerationMode.NONE,
@@ -256,10 +256,11 @@ fun CreateTournamentDialog(
     var winPts by rememberSaveable { mutableStateOf((initialTournament?.pointsForWin ?: defaultPoints.first).toString()) }
     var drawPts by rememberSaveable { mutableStateOf((initialTournament?.pointsForDraw ?: defaultPoints.second).toString()) }
     var lossPts by rememberSaveable { mutableStateOf((initialTournament?.pointsForLoss ?: defaultPoints.third).toString()) }
-    var avoidClubs by rememberSaveable { mutableStateOf(initialTournament?.avoidClubPairings ?: defaultAvoidClubs) }
+    val avoidClubs = false
     var autoCalc by rememberSaveable { mutableStateOf(initialTournament?.autoCalculateRounds ?: true) }
     var swissExtraRound by rememberSaveable { mutableStateOf(initialTournament?.swissExtraRound ?: true) }
-    var accelMode by rememberSaveable { mutableStateOf(initialTournament?.let { com.example.chesspairmobile.data.db.Converters().toAccelerationMode(it.accelerationMode) } ?: defaultAcceleration) }
+    var accelMode by rememberSaveable { mutableStateOf((initialTournament?.let { com.example.chesspairmobile.data.db.Converters().toAccelerationMode(it.accelerationMode) } ?: defaultAcceleration).takeIf { it != AccelerationMode.LIM } ?: AccelerationMode.NONE) }
+    var initialColour by rememberSaveable { mutableStateOf(initialTournament?.initialColour ?: if (kotlin.random.Random.nextBoolean()) "W" else "B") }
     var tiebreakOrder by rememberSaveable { mutableStateOf(initialTournament?.let { com.example.chesspairmobile.data.db.Converters().toTiebreakList(it.tiebreakOrder) } ?: defaultTiebreakOrder) }
     var tiebreakCustomized by rememberSaveable { mutableStateOf(false) }
     var expandedType by remember { mutableStateOf(false) }
@@ -271,7 +272,7 @@ fun CreateTournamentDialog(
         val automatic = type != TournamentType.SWISS || autoCalc
         onCreate(name.trim(), type, isTeam, if (automatic) 0 else rounds.toInt(), timeControl.ifBlank { null },
             Triple(winPts.toDouble(), drawPts.toDouble(), lossPts.toDouble()), avoidClubs && !isTeam && type != TournamentType.KNOCKOUT, automatic, false,
-            section.ifBlank { null }, tiebreakOrder, if (type == TournamentType.SWISS && !isTeam) accelMode else AccelerationMode.NONE, swissExtraRound)
+            section.ifBlank { null }, tiebreakOrder, if (type == TournamentType.SWISS && !isTeam) accelMode else AccelerationMode.NONE, swissExtraRound, initialColour)
     }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
@@ -298,7 +299,7 @@ fun CreateTournamentDialog(
                         }) }
                     }
                 }
-                Text(when (type) { TournamentType.SWISS -> "Players meet opponents with similar scores across a set number of rounds."; TournamentType.ROUND_ROBIN -> "Every participant meets every other participant."; TournamentType.KNOCKOUT -> "Winners advance to the next round." }, style = MaterialTheme.typography.bodyMedium)
+                Text(when (type) { TournamentType.SWISS -> "Players meet opponents with similar scores across a set number of rounds."; TournamentType.ROUND_ROBIN -> "Every participant meets every other participant. Berger numbers are drawn when the tournament starts."; TournamentType.KNOCKOUT -> "Winners advance through a fixed bracket seeded by participant order." }, style = MaterialTheme.typography.bodyMedium)
                 ViewModeSelector(
                     listOf("Individual", "Teams"), if (isTeam) 1 else 0, { isTeam = it == 1 }, Modifier.fillMaxWidth())
                 if (type == TournamentType.SWISS) {
@@ -317,14 +318,20 @@ fun CreateTournamentDialog(
                         OutlinedTextField(value = lossPts, onValueChange = { lossPts = it }, label = { Text("Loss") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                     }
                     if (!validScoring) Text("Enter nonnegative numbers for all scores", color = MaterialTheme.colorScheme.error)
-                    if (!isTeam && type != TournamentType.KNOCKOUT) LabeledCheckbox("Avoid club pairings", avoidClubs) { avoidClubs = it }
                     if (type == TournamentType.SWISS && !isTeam) {
                         Text("Acceleration", style = MaterialTheme.typography.titleMedium)
                         ViewModeSelector(
-                            AccelerationMode.entries.map { it.name.lowercase().replaceFirstChar { char -> char.uppercase() } },
-                            AccelerationMode.entries.indexOf(accelMode), { accelMode = AccelerationMode.entries[it] }, Modifier.fillMaxWidth())
-                        Text("Baku and Lim change initial seeding for larger Swiss fields. Choose None for standard pairing order.", style = MaterialTheme.typography.bodyMedium)
+                            listOf(AccelerationMode.NONE, AccelerationMode.BAKU).map { it.name.lowercase().replaceFirstChar { char -> char.uppercase() } },
+                            listOf(AccelerationMode.NONE, AccelerationMode.BAKU).indexOf(accelMode), { accelMode = listOf(AccelerationMode.NONE, AccelerationMode.BAKU)[it] }, Modifier.fillMaxWidth())
+                        Text("Baku adds virtual pairing points during the opening rounds. Scores in the standings stay unchanged.", style = MaterialTheme.typography.bodyMedium)
                     }
+                    if (type == TournamentType.SWISS) {
+                        Text("Initial colour drawn by lot", style = MaterialTheme.typography.titleMedium)
+                        ViewModeSelector(listOf("White", "Black"), if (initialColour == "W") 0 else 1,
+                            { initialColour = if (it == 0) "W" else "B" }, Modifier.fillMaxWidth())
+                        Text("A colour is drawn when this form opens. Select the result if the arbiter drew it separately.", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (type == TournamentType.KNOCKOUT) Text("The bracket is seeded by the participant order. Adjacent match winners advance along fixed paths.", style = MaterialTheme.typography.bodyMedium)
                     if (isTeam) Text("Individual tiebreaks apply to player standings. Teams rank by match points, game points, then Sonneborn-Berger.", style = MaterialTheme.typography.bodyMedium)
                     TiebreakConfigPanel(tiebreakOrder, { tiebreakOrder = it; tiebreakCustomized = true }, type,
                         title = if (isTeam) "Individual tiebreaks" else "Tiebreak settings")

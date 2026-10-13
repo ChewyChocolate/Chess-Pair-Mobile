@@ -46,9 +46,9 @@ class BackupManagerTest {
 
     @Test fun snapshotRestoresLatestWritesAndKeepsRecoveryCopy() = isolated { context, database, directory ->
         val dao = database.tournamentDao()
-        dao.insertTournament(tournament("saved"))
+        dao.insertTournament(tournament("saved").copy(initialColour = "B"))
         dao.insertPlayer(PlayerEntity("player", "saved", "Latest player", 1500, null, null, active = true, withdrawn = false, requestedByes = "[]", penaltyPoints = 0.0))
-        dao.insertTeam(TeamEntity("team", "saved", "Team", "[\"player\"]"))
+        dao.insertTeam(TeamEntity("team", "saved", "Team", "[\"player\"]", pairingNumber = 2))
         dao.insertMatch(MatchEntity("match", "saved", 1, "player", null, "BYE", 1, null, false, null))
         val file = File(directory, "saved.db")
         BackupManager.export(context, Uri.fromFile(file), database)
@@ -56,8 +56,10 @@ class BackupManagerTest {
         dao.insertTournament(tournament("previous"))
         BackupManager.restore(context, Uri.fromFile(file), database)
         assertEquals("saved", dao.getAllTournaments().single().id)
+        assertEquals("B", dao.getAllTournaments().single().initialColour)
         assertEquals("Latest player", dao.getAllPlayers().single().name)
         assertEquals("team", dao.getAllTeams().single().id)
+        assertEquals(2, dao.getAllTeams().single().pairingNumber)
         assertEquals("match", dao.getAllMatches().single().id)
         val recovery = BackupManager.recoveryFile(context)
         assertTrue(recovery.exists())

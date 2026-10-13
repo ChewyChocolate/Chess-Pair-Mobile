@@ -94,7 +94,8 @@ data class TeamEntity(
     @PrimaryKey val id: String,
     val tournamentId: String,
     val name: String,
-    val playerIds: String // JSON list of String
+    val playerIds: String, // JSON list of String
+    @ColumnInfo(defaultValue = "0") val pairingNumber: Int = 0
 )
 
 @Entity(tableName = "matches")
@@ -132,7 +133,8 @@ data class TournamentEntity(
     val accelerationMode: String = "NONE",
     val liveBroadcastUrl: String? = null,
     val forcedPairings: String = "[]",
-    val swissExtraRound: Boolean = true
+    val swissExtraRound: Boolean = true,
+    @ColumnInfo(defaultValue = "'W'") val initialColour: String = "W"
 )
 
 @Dao
@@ -250,7 +252,7 @@ interface TournamentDao {
 
 @Database(
     entities = [TournamentEntity::class, PlayerEntity::class, TeamEntity::class, MatchEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -274,6 +276,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tournaments ADD COLUMN initialColour TEXT NOT NULL DEFAULT 'W'")
+                db.execSQL("ALTER TABLE teams ADD COLUMN pairingNumber INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: android.content.Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -281,7 +290,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "chesspair-db"
                 )
-                    .addMigrations(MIGRATION_2_3)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                     // Last-resort safety net: if a user is on a version older
                     // than our known migrations, fall back to recreating the
                     // schema. Once we ship a 1->2 migration this can be removed.

@@ -89,15 +89,15 @@ class TiebreaksTest {
             listOf(p1, p2, p3), matches, 1.0, 0.5, 0.0,
             listOf(TiebreakType.PROGRESSIVE)
         )
-        // After round 1: p1=1.0, after round 2: p1=0.5 → cumulative=1.5
-        assertEquals(1.5, standings.first { it.player.id == "p1" }.progressive, 0.0)
+        // Cumulative scores are 1.0 and 1.5; their sum is 2.5.
+        assertEquals(2.5, standings.first { it.player.id == "p1" }.progressive, 0.0)
     }
 
     @Test
-    fun `calculateStandings counts requested byes in progressive when round is played`() {
+    fun `played results take precedence over requested byes in progressive`() {
         val p1 = player("p1", 2000).copy(requestedByes = listOf(2))
         val p2 = player("p2", 1800)
-        // Add a round 2 match so the bye counts
+        // A recorded game in round 2 replaces the requested absence.
         val matches = listOf(
             Match(round = 1, whiteId = "p1", blackId = "p2", result = MatchResult.WHITE_WIN, boardNumber = 1),
             Match(round = 2, whiteId = "p2", blackId = "p1", result = MatchResult.DRAW, boardNumber = 1)
@@ -107,8 +107,8 @@ class TiebreaksTest {
             listOf(TiebreakType.PROGRESSIVE)
         )
         val s = standings.first { it.player.id == "p1" }
-        // After round 1: 1.0 (won), after round 2: 0.5 (drew) + 0.5 (requested bye) = 2.0
-        assertEquals(2.0, s.progressive, 0.0)
+        // Cumulative scores: 1.0, then 1.5; progressive sum is 2.5.
+        assertEquals(2.5, s.progressive, 0.0)
     }
 
     @Test

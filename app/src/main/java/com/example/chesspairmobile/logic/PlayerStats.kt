@@ -22,7 +22,7 @@ fun getPlayerStats(
 
     for (m in sortedMatches) {
         val isWhite = m.whiteId == playerId
-        val color: Char? = if (m.result == MatchResult.BYE) null else if (isWhite) 'W' else 'B'
+        val color: Char? = if (!isPlayedResult(m.result)) null else if (isWhite) 'W' else 'B'
         val opponentId = if (isWhite) m.blackId else m.whiteId
         val opponentName = opponentId?.let { players.find { p -> p.id == it }?.name } ?: "BYE"
 
@@ -31,6 +31,8 @@ fun getPlayerStats(
             MatchResult.BLACK_WIN -> if (isWhite) "0" else "1"
             MatchResult.DRAW -> "0.5"
             MatchResult.BYE -> "1"
+            MatchResult.REST, MatchResult.FORFEIT_BOTH -> "0"
+            MatchResult.TEAM_BYE -> "0.5"
             MatchResult.FORFEIT_WHITE -> if (isWhite) "0" else "1"
             MatchResult.FORFEIT_BLACK -> if (isWhite) "1" else "0"
             null -> null

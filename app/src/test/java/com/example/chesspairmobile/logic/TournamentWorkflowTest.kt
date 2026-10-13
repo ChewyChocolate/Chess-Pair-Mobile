@@ -14,7 +14,7 @@ class TournamentWorkflowTest {
         assertNull(roundCompletionIssue("KNOCKOUT", true, drawn))
         val decided = drawn.map { it.copy(result = MatchResult.BLACK_WIN) }
         assertNull(roundCompletionIssue("KNOCKOUT", false, decided))
-        assertEquals(listOf("b"), generateKnockout(players, decided, 2).map { it.whiteId })
+        assertTrue(generateKnockout(players, decided, 2).isEmpty())
         assertNotNull(roundCompletionIssue("SWISS", false, emptyList()))
     }
 

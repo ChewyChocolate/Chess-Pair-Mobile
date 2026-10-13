@@ -13,10 +13,18 @@ fun calculateStandings(
     pointsForDraw: Double,
     pointsForLoss: Double,
     tiebreakOrder: List<TiebreakType>,
-    upToRound: Int? = null
+    upToRound: Int? = null,
+    tournamentType: TournamentType? = null
 ): List<PlayerStanding> {
-    val data = calculateScores(players, matches, pointsForWin, pointsForDraw, pointsForLoss, upToRound)
-    val matchesToProcess = if (upToRound != null) matches.filter { it.round <= upToRound } else matches
+    // C.05 6.6: preserve the original games, but omit results of a withdrawn
+    // round-robin player who completed fewer than half of the scheduled games.
+    val roster = if (players.any { it.pairingNumber > 0 }) players.filter { it.pairingNumber > 0 } else players
+    val ignored = if (tournamentType == TournamentType.ROUND_ROBIN) roster.filter { p ->
+        p.withdrawn && matches.count { (it.whiteId == p.id || it.blackId == p.id) && isPlayedResult(it.result) } * 2 < roster.size - 1
+    }.map { it.id }.toSet() else emptySet()
+    val scoringMatches = matches.map { if (it.whiteId in ignored || it.blackId in ignored) it.copy(result = MatchResult.REST) else it }
+    val data = calculateScores(players, scoringMatches, pointsForWin, pointsForDraw, pointsForLoss, upToRound)
+    val matchesToProcess = if (upToRound != null) scoringMatches.filter { it.round <= upToRound } else scoringMatches
 
     // Progressive score: sum of scores after each round.
     // Pre-index matches by round so we walk rounds once, not n*m times.
@@ -28,6 +36,7 @@ fun calculateStandings(
     val progressiveScores = mutableMapOf<String, Double>()
     players.forEach { p ->
         var cumulative = 0.0
+        var progressive = 0.0
         val requested = p.requestedByes.toHashSet()
         for (r in 1..maxRound) {
             val roundMatches = matchesByRound[r] ?: emptyList()
@@ -35,11 +44,12 @@ fun calculateStandings(
             if (playerMatch != null) {
                 cumulative += getMatchPointsForPlayer(playerMatch, p.id, pointsForWin, pointsForDraw, pointsForLoss)
             }
-            if (r in requested) {
+            if (r in requested && playerMatch == null) {
                 cumulative += pointsForDraw
             }
+            progressive += cumulative
         }
-        progressiveScores[p.id] = cumulative
+        progressiveScores[p.id] = progressive
     }
 
     // Pre-compute per-player Sonneborn-Berger and most-wins in a single pass
@@ -80,7 +90,7 @@ fun calculateStandings(
                     sbByPlayer[white] = (sbByPlayer[white] ?: 0.0) + whiteScore / 2
                     mostWinsByPlayer[white] = (mostWinsByPlayer[white] ?: 0) + 1
                 }
-                MatchResult.BYE -> {}
+                MatchResult.BYE, MatchResult.REST, MatchResult.TEAM_BYE, MatchResult.FORFEIT_BOTH -> {}
             }
         }
     }
@@ -194,7 +204,7 @@ fun calculatePerformanceRating(players: List<Player>, matches: List<Match>, play
 
     for (m in matches) {
         if (m.result == null) continue
-        if (m.result == MatchResult.BYE) continue
+        if (!isPlayedResult(m.result)) continue
         val isWhite = m.whiteId == playerId
         val isBlack = m.blackId == playerId
         if (!isWhite && !isBlack) continue
@@ -222,22 +232,6 @@ fun calculatePerformanceRating(players: List<Player>, matches: List<Match>, play
     }
 
     return (avgOppRating + dp).toInt().coerceAtLeast(0)
-}
-
-fun getMatchPointsForPlayer(
-    match: Match, playerId: String,
-    win: Double, draw: Double, loss: Double
-): Double {
-    val isWhite = match.whiteId == playerId
-    return when (match.result) {
-        MatchResult.WHITE_WIN -> if (isWhite) win else loss
-        MatchResult.BLACK_WIN -> if (isWhite) loss else win
-        MatchResult.DRAW -> draw
-        MatchResult.BYE -> if (match.whiteId == playerId) win else loss
-        MatchResult.FORFEIT_WHITE -> if (isWhite) loss else win
-        MatchResult.FORFEIT_BLACK -> if (isWhite) win else loss
-        null -> 0.0
-    }
 }
 
 // ---- Team standings ----

@@ -166,8 +166,8 @@ fun ChessPairApp(
                             restoreState = true
                         }
                     },
-                    onCreateTournament = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode, swissExtra ->
-                        viewModel.createTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode, swissExtra)
+                    onCreateTournament = { name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode, swissExtra, initialColour ->
+                        viewModel.createTournament(name, type, isTeam, rounds, tc, pts, noClub, autoCalc, manualOverride, section, tiebreaks, accelMode, swissExtra, initialColour)
                         navController.navigate("dashboard") {
                             popUpTo("home") { saveState = true }
                             launchSingleTop = true
@@ -301,14 +301,14 @@ fun ChessPairApp(
             CreateTournamentDialog(
                 initialTournament = activeTournament,
                 onDismiss = { showSetupEditor = false },
-                onCreate = { name, type, isTeam, rounds, tc, pts, avoidClubs, autoCalc, manual, section, tiebreaks, accel, extra ->
+                onCreate = { name, type, isTeam, rounds, tc, pts, avoidClubs, autoCalc, manual, section, tiebreaks, accel, extra, initialColour ->
                     val edited = activeTournament.copy(
                         name = name, type = type.name, isTeamTournament = isTeam, totalRounds = rounds,
                         timeControl = tc, section = section, pointsForWin = pts.first,
                         pointsForDraw = pts.second, pointsForLoss = pts.third,
                         avoidClubPairings = avoidClubs, autoCalculateRounds = autoCalc,
                         manualRoundOverride = manual, tiebreakOrder = Converters().fromTiebreakList(tiebreaks),
-                        accelerationMode = accel.name, swissExtraRound = extra
+                        accelerationMode = accel.name, swissExtraRound = extra, initialColour = initialColour
                     )
                     if (viewModel.saveTournamentSetup(edited)) showSetupEditor = false
                 }

@@ -131,7 +131,8 @@ fun StandingsScreen(
             modelPlayers, modelMatches,
             tournament.pointsForWin, tournament.pointsForDraw, tournament.pointsForLoss,
             tiebreakOrder,
-            upToRound = snapshotRound
+            upToRound = snapshotRound,
+            tournamentType = if (tournament.isTeamTournament) null else com.example.chesspairmobile.data.models.TournamentType.valueOf(tournament.type)
         )
     }
 

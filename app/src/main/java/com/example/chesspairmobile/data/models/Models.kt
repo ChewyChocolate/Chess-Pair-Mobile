@@ -23,7 +23,8 @@ data class Player(
 data class Team(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
-    val playerIds: List<String> = emptyList()
+    val playerIds: List<String> = emptyList(),
+    val pairingNumber: Int = 0
 )
 
 data class Match(
@@ -39,7 +40,8 @@ data class Match(
 )
 
 enum class MatchResult {
-    WHITE_WIN, BLACK_WIN, DRAW, BYE, FORFEIT_WHITE, FORFEIT_BLACK
+    WHITE_WIN, BLACK_WIN, DRAW, BYE, FORFEIT_WHITE, FORFEIT_BLACK,
+    REST, TEAM_BYE, FORFEIT_BOTH
 }
 
 data class ForcedPairing(
@@ -89,7 +91,8 @@ data class Tournament(
     ),
     val accelerationMode: AccelerationMode = AccelerationMode.NONE,
     val liveBroadcastUrl: String? = null,
-    val swissExtraRound: Boolean = true
+    val swissExtraRound: Boolean = true,
+    val initialColour: String = "W"
 )
 
 fun defaultTiebreakOrderForType(type: TournamentType): List<TiebreakType> = when (type) {

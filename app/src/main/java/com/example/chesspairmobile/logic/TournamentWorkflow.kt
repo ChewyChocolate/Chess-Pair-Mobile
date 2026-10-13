@@ -21,6 +21,9 @@ fun startRequirement(players: List<Player>, teams: List<Team>, teamEvent: Boolea
         if (teams.count { it.playerIds.isNotEmpty() } < 2) {
             return "Create at least two teams and assign active players to each."
         }
+        if (teams.filter { it.playerIds.isNotEmpty() }.map { it.playerIds.size }.distinct().size != 1) {
+            return "Assign the same number of boards to every team before starting."
+        }
     } else if (activeIds.size < 2) {
         return "Add at least ${2 - activeIds.size} more active player(s) to begin."
     }
@@ -88,7 +91,8 @@ fun parseByeRounds(text: String, totalRounds: Int): List<Int>? {
 
 fun standingsCsv(
     players: List<Player>, teams: List<Team>, matches: List<Match>, round: Int,
-    win: Double, draw: Double, loss: Double, order: List<TiebreakType>, teamView: Boolean
+    win: Double, draw: Double, loss: Double, order: List<TiebreakType>, teamView: Boolean,
+    tournamentType: TournamentType? = null
 ): String {
     fun quote(value: String) = "\"${value.replace("\"", "\"\"")}\""
     return buildString {
@@ -99,7 +103,7 @@ fun standingsCsv(
             }
         } else {
             append("Round,Rank,Name,Rating,Score,Buchholz,MedianBuchholz,BuchholzCut1,SonnebornBerger,MostWins,Progressive,Performance\n")
-            calculateStandings(players, matches, win, draw, loss, order, round).forEachIndexed { index, s ->
+            calculateStandings(players, matches, win, draw, loss, order, round, tournamentType).forEachIndexed { index, s ->
                 append("$round,${index + 1},${quote(s.player.name)},${s.player.rating ?: ""},${s.score},${s.buchholz},${s.medianBuchholz},${s.buchholzCut1},${s.sonnebornBerger},${s.mostWins},${s.progressive},${s.performanceRating}\n")
             }
         }
