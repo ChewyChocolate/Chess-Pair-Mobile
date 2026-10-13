@@ -453,11 +453,18 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
 
         val tid = t.id
         val matchEntities = newMatches.map { matchToEntity(it, tid) }
+        if (matchEntities.isEmpty()) {
+            notifyUser("No pairings available. Review the roster and previous-round results.")
+            return
+        }
 
         pairingJob?.cancel()
         pairingJob = viewModelScope.launch {
-            dao.deleteMatchesByRound(tid, round)
-            dao.insertMatches(matchEntities)
+            db.withTransaction {
+                dao.deleteMatchesByRound(tid, round)
+                dao.insertMatches(matchEntities)
+                if (supportsForcedPairings(t.type, t.isTeamTournament)) dao.updateForcedPairings(tid, "[]")
+            }
         }
     }
 
@@ -481,20 +488,22 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun completeRound() {
-        val t = getActiveTournament() ?: return
-        if (t.status != TournamentStatus.ACTIVE.name) return
+    fun completeRound(): Boolean {
+        val t = getActiveTournament() ?: return false
+        if (t.status != TournamentStatus.ACTIVE.name) return false
 
         // Guard: all matches must have results (both regular and bye/manual matches)
         val roundMatches = _matches.value.filter { it.round == t.currentRound }
-        if (roundMatches.isEmpty()) return
-        val incomplete = roundMatches.any { m -> m.result == null }
-        if (incomplete) return
+        roundCompletionIssue(t.type, t.isTeamTournament, roundMatches.map(::entityToMatch), getTournamentTeams())?.let {
+            notifyUser(it)
+            return false
+        }
 
         val nextRound = t.currentRound + 1
         val status = if (nextRound > t.totalRounds) TournamentStatus.COMPLETED.name else TournamentStatus.ACTIVE.name
         val currentRound = if (status == TournamentStatus.COMPLETED.name) t.currentRound else nextRound
         updateTournament(t.copy(status = status, currentRound = currentRound))
+        return true
     }
 
     fun rollbackRound() {
@@ -502,12 +511,10 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         if (t.currentRound == 0) return
 
         if (t.status == TournamentStatus.COMPLETED.name) {
+            // Reopening changes editing permissions; it must preserve recorded games and automatic byes.
             viewModelScope.launch {
-                _matches.value.filter { it.round == t.currentRound }.forEach { m ->
-                    dao.updateMatch(m.copy(result = null))
-                }
+                dao.updateTournament(t.copy(status = TournamentStatus.ACTIVE.name))
             }
-            updateTournament(t.copy(status = TournamentStatus.ACTIVE.name))
         } else {
             val newRound = t.currentRound - 1
             val newStatus = if (newRound == 0) TournamentStatus.SETUP.name else TournamentStatus.ACTIVE.name
@@ -524,9 +531,15 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
         val tid = _activeTournamentId.value ?: return
         val m1 = _matches.value.find { it.id == matchId1 } ?: return
         val m2 = _matches.value.find { it.id == matchId2 } ?: return
-        if (m1.round != tournament.currentRound || m2.round != tournament.currentRound || m1.result != null || m2.result != null) return
+        if (m1.round != tournament.currentRound || m2.round != tournament.currentRound || m1.result != null || m2.result != null) {
+            notifyUser("Only pending boards in the current round can be swapped.")
+            return
+        }
 
-        if (m1.blackId == null || m2.blackId == null) return
+        if (m1.blackId == null || m2.blackId == null) {
+            notifyUser("Bye recipients cannot be swapped.")
+            return
+        }
         val p1Id = if (isWhite1) m1.whiteId else m1.blackId
         val p2Id = if (isWhite2) m2.whiteId else m2.blackId
         if (p1Id == null || p2Id == null) return
@@ -570,6 +583,26 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     // ---- Tournament editing ----
+    fun saveTournamentSetup(edited: TournamentEntity): Boolean {
+        val current = getActiveTournament() ?: return false
+        if (current.status != "SETUP" || edited.id != current.id) return false
+        val scores = listOf(edited.pointsForWin, edited.pointsForDraw, edited.pointsForLoss)
+        if (edited.name.isBlank() || scores.any { !it.isFinite() || it < 0 } ||
+            (edited.type == "SWISS" && !edited.autoCalculateRounds && edited.totalRounds < 1)) return false
+        val updated = current.copy(
+            name = edited.name.trim(), section = edited.section, type = edited.type,
+            isTeamTournament = edited.isTeamTournament, totalRounds = edited.totalRounds,
+            autoCalculateRounds = edited.autoCalculateRounds, manualRoundOverride = edited.manualRoundOverride,
+            timeControl = edited.timeControl, pointsForWin = edited.pointsForWin,
+            pointsForDraw = edited.pointsForDraw, pointsForLoss = edited.pointsForLoss,
+            avoidClubPairings = edited.avoidClubPairings, accelerationMode = edited.accelerationMode,
+            tiebreakOrder = edited.tiebreakOrder, swissExtraRound = edited.swissExtraRound,
+            forcedPairings = if (supportsForcedPairings(edited.type, edited.isTeamTournament)) current.forcedPairings else "[]"
+        )
+        viewModelScope.launch { dao.updateTournament(updated); _messages.emit("Tournament settings saved") }
+        return true
+    }
+
     fun updateTournamentSettings(
         name: String? = null,
         section: String? = null,
@@ -663,10 +696,23 @@ class TournamentViewModel(application: Application) : AndroidViewModel(applicati
     fun addForcedPairing(whiteId: String, blackId: String) {
         if (!requireStatus(TournamentStatus.SETUP, TournamentStatus.ACTIVE)) return
         val t = getActiveTournament() ?: return
+        if (!supportsForcedPairings(t.type, t.isTeamTournament)) {
+            notifyUser("Forced pairings are available for individual Swiss tournaments.")
+            return
+        }
+        if (t.status == "ACTIVE" && t.currentRound == t.totalRounds && _matches.value.any { it.round == t.currentRound }) {
+            notifyUser("The final round already has pairings.")
+            return
+        }
+        forcedPairingIssue(ForcedPairing(whiteId, blackId), getForcedPairingList(), getTournamentPlayers())?.let {
+            notifyUser(it)
+            return
+        }
         val current = t.forcedPairings
         val fps = converters.toStringList(current).toMutableList()
         fps.add("$whiteId:$blackId")
         updateTournament(t.copy(forcedPairings = converters.fromStringList(fps)))
+        notifyUser("Forced pairing saved for the next unpaired round")
     }
 
     fun clearForcedPairings() {

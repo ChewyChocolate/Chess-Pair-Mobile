@@ -1,5 +1,9 @@
 package com.example.chesspairmobile.ui.screens
 
+import com.example.chesspairmobile.ui.components.ViewModeSelector
+
+import com.example.chesspairmobile.ui.components.TournamentStatusBadge
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,6 +28,7 @@ import com.example.chesspairmobile.data.db.TournamentEntity
 import com.example.chesspairmobile.data.models.*
 import com.example.chesspairmobile.ui.components.TiebreakConfigPanel
 import com.example.chesspairmobile.ui.components.StatusBadge
+import com.example.chesspairmobile.ui.components.LabeledCheckbox
 import com.example.chesspairmobile.BuildConfig
 import com.example.chesspairmobile.logic.TestTournamentPreset
 
@@ -177,13 +182,6 @@ fun TournamentCard(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val statusColor = when (tournament.status) {
-        "SETUP" -> MaterialTheme.colorScheme.outline
-        "ACTIVE" -> MaterialTheme.colorScheme.tertiary
-        "COMPLETED" -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.outline
-    }
-
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -204,7 +202,7 @@ fun TournamentCard(
                 Spacer(Modifier.height(6.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     TournamentTypeChip(tournament.type)
-                    StatusBadge(tournament.status.lowercase().replaceFirstChar { it.uppercase() })
+                    TournamentStatusBadge(tournament.status)
                     if (tournament.isTeamTournament) {
                         StatusBadge("Team")
                     }
@@ -244,22 +242,25 @@ fun CreateTournamentDialog(
         TiebreakType.DIRECT_ENCOUNTER, TiebreakType.BUCHHOLZ, TiebreakType.MEDIAN_BUCHHOLZ,
         TiebreakType.SONNEBORN_BERGER, TiebreakType.MOST_WINS
     ),
-    defaultName: String = "Tournament 1"
+    defaultName: String = "Tournament 1",
+    initialTournament: TournamentEntity? = null
 ) {
-    var name by rememberSaveable { mutableStateOf(defaultName) }
-    var section by rememberSaveable { mutableStateOf("") }
-    var type by rememberSaveable { mutableStateOf(TournamentType.SWISS) }
-    var isTeam by rememberSaveable { mutableStateOf(false) }
-    var rounds by rememberSaveable { mutableStateOf("") }
-    var timeControl by rememberSaveable { mutableStateOf("") }
-    var winPts by rememberSaveable { mutableStateOf(defaultPoints.first.toString()) }
-    var drawPts by rememberSaveable { mutableStateOf(defaultPoints.second.toString()) }
-    var lossPts by rememberSaveable { mutableStateOf(defaultPoints.third.toString()) }
-    var avoidClubs by rememberSaveable { mutableStateOf(defaultAvoidClubs) }
-    var autoCalc by rememberSaveable { mutableStateOf(true) }
-    var swissExtraRound by rememberSaveable { mutableStateOf(true) }
-    var accelMode by rememberSaveable { mutableStateOf(defaultAcceleration) }
-    var tiebreakOrder by rememberSaveable { mutableStateOf(defaultTiebreakOrder) }
+    val editing = initialTournament != null
+    val formTitle = if (editing) "Edit tournament" else "Create tournament"
+    var name by rememberSaveable { mutableStateOf(initialTournament?.name ?: defaultName) }
+    var section by rememberSaveable { mutableStateOf(initialTournament?.section ?: "") }
+    var type by rememberSaveable { mutableStateOf(initialTournament?.let { TournamentType.valueOf(it.type) } ?: TournamentType.SWISS) }
+    var isTeam by rememberSaveable { mutableStateOf(initialTournament?.isTeamTournament ?: false) }
+    var rounds by rememberSaveable { mutableStateOf(initialTournament?.totalRounds?.takeIf { it > 0 }?.toString() ?: "") }
+    var timeControl by rememberSaveable { mutableStateOf(initialTournament?.timeControl ?: "") }
+    var winPts by rememberSaveable { mutableStateOf((initialTournament?.pointsForWin ?: defaultPoints.first).toString()) }
+    var drawPts by rememberSaveable { mutableStateOf((initialTournament?.pointsForDraw ?: defaultPoints.second).toString()) }
+    var lossPts by rememberSaveable { mutableStateOf((initialTournament?.pointsForLoss ?: defaultPoints.third).toString()) }
+    var avoidClubs by rememberSaveable { mutableStateOf(initialTournament?.avoidClubPairings ?: defaultAvoidClubs) }
+    var autoCalc by rememberSaveable { mutableStateOf(initialTournament?.autoCalculateRounds ?: true) }
+    var swissExtraRound by rememberSaveable { mutableStateOf(initialTournament?.swissExtraRound ?: true) }
+    var accelMode by rememberSaveable { mutableStateOf(initialTournament?.let { com.example.chesspairmobile.data.db.Converters().toAccelerationMode(it.accelerationMode) } ?: defaultAcceleration) }
+    var tiebreakOrder by rememberSaveable { mutableStateOf(initialTournament?.let { com.example.chesspairmobile.data.db.Converters().toTiebreakList(it.tiebreakOrder) } ?: defaultTiebreakOrder) }
     var tiebreakCustomized by rememberSaveable { mutableStateOf(false) }
     var expandedType by remember { mutableStateOf(false) }
     var advanced by rememberSaveable { mutableStateOf(false) }
@@ -269,18 +270,18 @@ fun CreateTournamentDialog(
         if (name.isBlank() || !validScoring || !validRounds) return
         val automatic = type != TournamentType.SWISS || autoCalc
         onCreate(name.trim(), type, isTeam, if (automatic) 0 else rounds.toInt(), timeControl.ifBlank { null },
-            Triple(winPts.toDouble(), drawPts.toDouble(), lossPts.toDouble()), avoidClubs, automatic, false,
-            section.ifBlank { null }, tiebreakOrder, if (type == TournamentType.SWISS) accelMode else AccelerationMode.NONE, swissExtraRound)
+            Triple(winPts.toDouble(), drawPts.toDouble(), lossPts.toDouble()), avoidClubs && !isTeam && type != TournamentType.KNOCKOUT, automatic, false,
+            section.ifBlank { null }, tiebreakOrder, if (type == TournamentType.SWISS && !isTeam) accelMode else AccelerationMode.NONE, swissExtraRound)
     }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(modifier = Modifier.fillMaxSize().imePadding(),
-            topBar = { TopAppBar(title = { Text("Create tournament") }, navigationIcon = {
-                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Cancel creation") }
+            topBar = { TopAppBar(title = { Text(formTitle) }, navigationIcon = {
+                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Cancel") }
             }) },
             bottomBar = { Surface(shadowElevation = 4.dp) {
                 Button(onClick = { create() }, enabled = name.isNotBlank() && validScoring && validRounds,
-                    modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp)) { Text("Create tournament") }
+                    modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp)) { Text(if (editing) "Save tournament" else "Create tournament") }
             } }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Tournament basics", style = MaterialTheme.typography.titleLarge)
@@ -298,13 +299,11 @@ fun CreateTournamentDialog(
                     }
                 }
                 Text(when (type) { TournamentType.SWISS -> "Players meet opponents with similar scores across a set number of rounds."; TournamentType.ROUND_ROBIN -> "Every participant meets every other participant."; TournamentType.KNOCKOUT -> "Winners advance to the next round." }, style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = !isTeam, onClick = { isTeam = false }, label = { Text("Individual") })
-                    FilterChip(selected = isTeam, onClick = { isTeam = true }, label = { Text("Teams") })
-                }
+                ViewModeSelector(
+                    listOf("Individual", "Teams"), if (isTeam) 1 else 0, { isTeam = it == 1 }, Modifier.fillMaxWidth())
                 if (type == TournamentType.SWISS) {
-                    Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = autoCalc, onCheckedChange = { autoCalc = it }); Text("Calculate rounds from roster") }
-                    if (autoCalc) Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = swissExtraRound, onCheckedChange = { swissExtraRound = it }); Text("Add one extra round") }
+                    LabeledCheckbox("Calculate rounds from roster", autoCalc) { autoCalc = it }
+                    if (autoCalc) LabeledCheckbox("Add one extra round", swissExtraRound) { swissExtraRound = it }
                     else OutlinedTextField(value = rounds, onValueChange = { rounds = it.filter(Char::isDigit) }, label = { Text("Number of rounds") }, singleLine = true, modifier = Modifier.fillMaxWidth(), isError = !validRounds,
                         supportingText = { if (!validRounds) Text("Enter at least one round") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 } else Text("Rounds are calculated from the ${if (isTeam) "teams" else "players"} when you start.", style = MaterialTheme.typography.bodyMedium)
@@ -318,15 +317,17 @@ fun CreateTournamentDialog(
                         OutlinedTextField(value = lossPts, onValueChange = { lossPts = it }, label = { Text("Loss") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                     }
                     if (!validScoring) Text("Enter nonnegative numbers for all scores", color = MaterialTheme.colorScheme.error)
-                    Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = avoidClubs, onCheckedChange = { avoidClubs = it }); Text("Avoid club pairings") }
+                    if (!isTeam && type != TournamentType.KNOCKOUT) LabeledCheckbox("Avoid club pairings", avoidClubs) { avoidClubs = it }
                     if (type == TournamentType.SWISS && !isTeam) {
                         Text("Acceleration", style = MaterialTheme.typography.titleMedium)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AccelerationMode.entries.forEach { mode -> FilterChip(selected = accelMode == mode, onClick = { accelMode = mode }, label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) }) }
-                        }
+                        ViewModeSelector(
+                            AccelerationMode.entries.map { it.name.lowercase().replaceFirstChar { char -> char.uppercase() } },
+                            AccelerationMode.entries.indexOf(accelMode), { accelMode = AccelerationMode.entries[it] }, Modifier.fillMaxWidth())
                         Text("Baku and Lim change initial seeding for larger Swiss fields. Choose None for standard pairing order.", style = MaterialTheme.typography.bodyMedium)
                     }
-                    TiebreakConfigPanel(tiebreakOrder, { tiebreakOrder = it; tiebreakCustomized = true }, type)
+                    if (isTeam) Text("Individual tiebreaks apply to player standings. Teams rank by match points, game points, then Sonneborn-Berger.", style = MaterialTheme.typography.bodyMedium)
+                    TiebreakConfigPanel(tiebreakOrder, { tiebreakOrder = it; tiebreakCustomized = true }, type,
+                        title = if (isTeam) "Individual tiebreaks" else "Tiebreak settings")
                 }
                 Text("${if (isTeam) "Team" else "Individual"} tournament · ${if (type != TournamentType.SWISS || autoCalc) "automatic rounds" else "$rounds rounds"} · win $winPts / draw $drawPts / loss $lossPts", style = MaterialTheme.typography.bodyMedium)
                 if (!validScoring && !advanced) Text("Open Advanced settings to correct scoring", color = MaterialTheme.colorScheme.error)

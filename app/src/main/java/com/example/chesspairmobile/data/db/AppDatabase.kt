@@ -157,6 +157,9 @@ interface TournamentDao {
     @Update
     suspend fun updateTournament(tournament: TournamentEntity)
 
+    @Query("UPDATE tournaments SET forcedPairings = :pairings WHERE id = :id")
+    suspend fun updateForcedPairings(id: String, pairings: String)
+
     @Delete
     suspend fun deleteTournament(tournament: TournamentEntity)
 

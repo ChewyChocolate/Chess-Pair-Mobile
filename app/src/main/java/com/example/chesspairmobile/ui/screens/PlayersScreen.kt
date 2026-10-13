@@ -1,5 +1,7 @@
 package com.example.chesspairmobile.ui.screens
 
+import com.example.chesspairmobile.ui.components.RosterTabs
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -25,6 +27,9 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import com.example.chesspairmobile.data.db.PlayerEntity
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -78,10 +83,7 @@ fun PlayersScreen(
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
             if (isTeamTournament) {
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = true, onClick = {}, label = { Text("Players") })
-                    FilterChip(selected = false, onClick = onShowTeams, label = { Text("Teams") })
-                }
+                RosterTabs(false, {}, onShowTeams)
             }
             // Title row
             Row(
@@ -167,6 +169,7 @@ fun PlayersScreen(
 
     if (showAddDialog) {
         AddPlayerDialog(
+            players = players,
             onDismiss = { showAddDialog = false },
             onAdd = { name, rating, title, club ->
                 onAddPlayer(name, rating, title, club)
@@ -350,13 +353,31 @@ fun RequestedByeDialog(
 @Composable
 fun AddPlayerDialog(
     onDismiss: () -> Unit,
-    onAdd: (String, Int?, String?, String?) -> Unit
+    onAdd: (String, Int?, String?, String?) -> Unit,
+    players: List<PlayerEntity> = emptyList()
 ) {
     var name by rememberSaveable { mutableStateOf("") }
     var rating by rememberSaveable { mutableStateOf("") }
     var title by rememberSaveable { mutableStateOf("") }
     var club by rememberSaveable { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
+    var pendingName by rememberSaveable { mutableStateOf<String?>(null) }
+    var previousCount by rememberSaveable { mutableIntStateOf(players.size) }
+    var addedMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(players.size, pendingName) {
+        if (pendingName != null && players.size > previousCount) {
+            addedMessage = "$pendingName added"
+            pendingName = null
+        }
+    }
+    fun addNext() {
+        if (name.isBlank() || pendingName != null) return
+        pendingName = name.trim()
+        previousCount = players.size
+        onAdd(name.trim(), rating.toIntOrNull(), title.ifBlank { null }, club.ifBlank { null })
+        name = ""
+        focusRequester.requestFocus()
+    }
 
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
@@ -370,10 +391,7 @@ fun AddPlayerDialog(
                     singleLine = true, modifier = Modifier.focusRequester(focusRequester),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = {
-                        if (name.isNotBlank()) {
-                            onAdd(name.trim(), rating.toIntOrNull(), title.ifBlank { null }, club.ifBlank { null })
-                            name = ""; focusRequester.requestFocus()
-                        }
+                        addNext()
                     })
                 )
                 OutlinedTextField(
@@ -386,17 +404,17 @@ fun AddPlayerDialog(
                 OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title (optional, e.g. GM, IM)") }, singleLine = true)
                 OutlinedTextField(value = club, onValueChange = { club = it }, label = { Text("Club (optional)") }, singleLine = true)
                 Text("Add & Next keeps rating, title, and club for the next player.", style = MaterialTheme.typography.bodyMedium)
+                (pendingName?.let { "Adding $it…" } ?: addedMessage)?.let {
+                    Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
-                    if (name.isNotBlank()) {
-                        onAdd(name.trim(), rating.toIntOrNull(), title.ifBlank { null }, club.ifBlank { null })
-                        name = ""; focusRequester.requestFocus()
-                    }
+                    addNext()
                 },
-                enabled = name.isNotBlank()
+                enabled = name.isNotBlank() && pendingName == null
             ) { Text("Add & Next") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Done") } }

@@ -1,5 +1,7 @@
 package com.example.chesspairmobile.ui.screens
 
+import com.example.chesspairmobile.ui.components.RosterTabs
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -51,10 +53,7 @@ fun TeamsScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = false, onClick = onShowPlayers, label = { Text("Players") })
-                FilterChip(selected = true, onClick = {}, label = { Text("Teams") })
-            }
+            RosterTabs(true, onShowPlayers, {})
             if (!canEdit) Text("Team rosters are locked after starting", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium)
             // Title row
             Text(
@@ -87,7 +86,7 @@ fun TeamsScreen(
                         Spacer(Modifier.height(12.dp))
                         Text("No teams created yet", style = MaterialTheme.typography.bodyLarge)
                         Spacer(Modifier.height(4.dp))
-                        Text("Tap + to create a team", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Use Add team to create a roster", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             } else {
@@ -169,23 +168,6 @@ fun TeamCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                // Board fill indicator
-                val fillColor = when {
-                    teamPlayerIds.isEmpty() -> MaterialTheme.colorScheme.outline
-                    teamPlayerIds.size >= 4 -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.tertiary
-                }
-                Surface(
-                    shape = MaterialTheme.shapes.small,
-                    color = fillColor.copy(alpha = 0.12f)
-                ) {
-                    Text(
-                        "${teamPlayerIds.size} players",
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = fillColor
-                    )
-                }
             }
 
             HorizontalDivider(Modifier.padding(vertical = 10.dp))
@@ -227,7 +209,7 @@ fun TeamCard(
             if (canEdit && unassignedPlayers.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Box {
-                    OutlinedButton(
+                    TextButton(
                         onClick = { showAssignDropdown = true },
                         modifier = Modifier.fillMaxWidth()
                     ) {

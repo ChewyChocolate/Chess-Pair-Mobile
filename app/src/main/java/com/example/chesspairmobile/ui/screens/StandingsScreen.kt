@@ -1,8 +1,11 @@
 package com.example.chesspairmobile.ui.screens
 
+import com.example.chesspairmobile.ui.components.ViewModeSelector
+
+import com.example.chesspairmobile.ui.components.RoundPicker
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -17,7 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -29,6 +32,8 @@ import com.example.chesspairmobile.data.db.TournamentEntity
 import com.example.chesspairmobile.data.db.TeamEntity
 import com.example.chesspairmobile.data.db.Converters
 import com.example.chesspairmobile.logic.calculateTeamStandings
+import com.example.chesspairmobile.logic.standingsRoundLabel
+import com.example.chesspairmobile.logic.standingsSnapshotRound
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.example.chesspairmobile.data.models.PlayerStanding
 import com.example.chesspairmobile.data.models.TiebreakType
@@ -72,7 +77,8 @@ fun StandingsScreen(
                 Text("Standings appear as results are entered. Review tiebreaks before starting.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (onUpdateTiebreakOrder != null) TiebreakConfigPanel(
                     Converters().toTiebreakList(tournament.tiebreakOrder), onUpdateTiebreakOrder,
-                    try { TournamentType.valueOf(tournament.type) } catch (_: Exception) { null }
+                    try { TournamentType.valueOf(tournament.type) } catch (_: Exception) { null },
+                    title = if (tournament.isTeamTournament) "Individual tiebreaks" else "Tiebreak settings"
                 )
             }
         }
@@ -108,23 +114,24 @@ fun StandingsScreen(
     }
 
     var selectedRound by rememberSaveable(tournament.id) { mutableIntStateOf(tournament.currentRound) }
+    val snapshotRound = standingsSnapshotRound(selectedRound, modelMatches)
     var teamView by rememberSaveable(tournament.id) { mutableStateOf(tournament.isTeamTournament) }
     var showAllTiebreaks by rememberSaveable(tournament.id) { mutableStateOf(false) }
     val modelTeams = remember(teams) { teams.map { com.example.chesspairmobile.data.models.Team(it.id, it.name, Converters().toStringList(it.playerIds)) } }
-    val teamStandings = remember(modelTeams, modelMatches, selectedRound) { calculateTeamStandings(modelTeams, modelMatches, selectedRound) }
-    var exportRound by rememberSaveable { mutableIntStateOf(selectedRound) }
+    val teamStandings = remember(modelTeams, modelMatches, snapshotRound) { calculateTeamStandings(modelTeams, modelMatches, snapshotRound) }
+    var exportRound by rememberSaveable { mutableIntStateOf(snapshotRound) }
     var exportTeams by rememberSaveable { mutableStateOf(teamView) }
     var selectedStanding by remember { mutableStateOf<PlayerStanding?>(null) }
     LaunchedEffect(tournament.currentRound) {
         selectedRound = tournament.currentRound
     }
 
-    val standings = remember(modelPlayers, modelMatches, tournament, tiebreakOrder, selectedRound) {
+    val standings = remember(modelPlayers, modelMatches, tournament, tiebreakOrder, snapshotRound) {
         calculateStandings(
             modelPlayers, modelMatches,
             tournament.pointsForWin, tournament.pointsForDraw, tournament.pointsForLoss,
             tiebreakOrder,
-            upToRound = selectedRound
+            upToRound = snapshotRound
         )
     }
 
@@ -173,112 +180,86 @@ fun StandingsScreen(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
                 )
-                FilledTonalButton(onClick = {
-                    exportRound = selectedRound
+                FilledTonalButton(enabled = snapshotRound > 0, onClick = {
+                    exportRound = snapshotRound
                     exportTeams = teamView
                     val safeName = tournament.name.replace(Regex("[^A-Za-z0-9_-]"), "_").take(40)
-                    exportLauncher.launch("${safeName}_${if (teamView) "team" else "individual"}_round_${selectedRound}.csv")
+                    exportLauncher.launch("${safeName}_${if (teamView) "team" else "individual"}_round_${snapshotRound}.csv")
                 }) {
                     Icon(Icons.Default.FileDownload, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Export CSV")
                 }
             }
-            Text("Standings through Round $selectedRound${if (matches.any { it.round <= selectedRound && it.result == null }) " · provisional" else ""}", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium)
-            if (tournament.isTeamTournament) Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = teamView, onClick = { teamView = true }, label = { Text("Teams") })
-                FilterChip(selected = !teamView, onClick = { teamView = false }, label = { Text("Individuals") })
-            }
-            // Round selector
-            Surface(
-                Modifier.fillMaxWidth(),
-                tonalElevation = 1.dp
-            ) {
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        for (r in 1..tournament.currentRound) {
-                            FilterChip(
-                                selected = selectedRound == r,
-                                onClick = { selectedRound = r },
-                                label = { Text("$r") },
-                                modifier = Modifier.padding(horizontal = 2.dp)
-                            )
-                        }
-                    }
-                    HorizontalDivider()
-                }
-            }
-
-
+            Text(standingsRoundLabel(selectedRound, modelMatches), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium)
+            if (tournament.isTeamTournament) ViewModeSelector(
+                listOf("Teams", "Individuals"), if (teamView) 0 else 1, { teamView = it == 0 },
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp))
+            RoundPicker(selectedRound, tournament.currentRound,
+                tournament.totalRounds, { selectedRound = it }, Modifier.padding(horizontal = 8.dp))
             if (teamView) {
-                Text("Match points: win 2 · draw 1 · loss 0. Game points total board results.", Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                Text("Ranked by match points, game points, then Sonneborn-Berger. Match points: win 2 · draw 1 · loss 0.", Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
                 LazyColumn(Modifier.weight(1f)) {
                     itemsIndexed(teamStandings, key = { _, standing -> standing.team.id }) { index, standing ->
                         Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text("${index + 1}. ${standing.team.name}", style = MaterialTheme.typography.titleMedium)
                                 Text("${standing.matchPoints} match points · ${standing.gamePoints} game points", style = MaterialTheme.typography.bodyLarge)
+                                Text("Sonneborn-Berger: ${standing.sonnebornBerger}", style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
                 }
             } else {
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = showAllTiebreaks, onClick = { showAllTiebreaks = !showAllTiebreaks }, label = { Text("All tiebreaks") })
-                Text("Tap a player for history", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodySmall)
-            }
-            val columns = remember(tiebreakOrder, showAllTiebreaks) { tiebreakColumns(tiebreakOrder).let { if (showAllTiebreaks) it else it.take(1) } }
-            Text(columns.joinToString(" · ") { it.description }, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall)
-            Surface(
-                Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("#", Modifier.width(36.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                    Text("Name", Modifier.width(120.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    Text("Pts", Modifier.width(48.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                    Row(Modifier.weight(1f).horizontalScroll(tableScrollState)) { columns.forEach { col ->
-                        Text(col.label, Modifier.width(56.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                val columns = remember(tiebreakOrder, showAllTiebreaks) {
+                    if (showAllTiebreaks) tiebreakColumns(tiebreakOrder) else emptyList()
+                }
+                Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { showAllTiebreaks = !showAllTiebreaks }) {
+                        Text("All tiebreaks")
+                        Spacer(Modifier.width(4.dp))
+                        Icon(if (showAllTiebreaks) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, Modifier.size(18.dp))
                     }
+                    Text(if (showAllTiebreaks) "Swipe table for more" else "Tap a player for history",
+                        Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                    // Expand the whole table together so headings and rows stay aligned.
+                    val tableWidth = if (showAllTiebreaks) maxOf(maxWidth, (36 + 180 + 56 + 24 + columns.size * 72).dp) else maxWidth
+                    Column(Modifier.horizontalScroll(tableScrollState)) {
+                        Column(Modifier.width(tableWidth)) {
+                            Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("#", Modifier.width(36.dp), style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
+                                    Text("Player", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                                    Text("Pts", Modifier.width(56.dp), style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
+                                    columns.forEach { col ->
+                                        Text(col.label, Modifier.width(72.dp), style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
+                                    }
+                                }
+                            }
+                            LazyColumn(Modifier.weight(1f)) {
+                                itemsIndexed(standings, key = { _, standing -> standing.player.id }) { index, standing ->
+                                    StandingRow(index, standing, columns, onClick = { selectedStanding = standing })
+                                }
+                                item { Spacer(Modifier.height(16.dp)) }
+                            }
+                        }
                     }
                 }
-            }
-
-            LazyColumn(Modifier.weight(1f)) {
-                itemsIndexed(standings) { index, standing ->
-                    StandingRow(
-                        index = index,
-                        standing = standing,
-                        columns = columns,
-                        scrollState = tableScrollState,
-                        onClick = { selectedStanding = standing }
-                    )
-                }
-                item { Spacer(Modifier.height(16.dp)) }
-            }
             }
         }
     }
 
     selectedStanding?.let { standing ->
-        val stats = remember(standing, modelPlayers, modelMatches, selectedRound) {
-            getPlayerStats(modelPlayers, modelMatches.filter { it.round <= selectedRound }, standing.player.id)
+        val stats = remember(standing, modelPlayers, modelMatches, snapshotRound) {
+            getPlayerStats(modelPlayers, modelMatches.filter { it.round <= snapshotRound }, standing.player.id)
         }
         // Also collect requested byes that have no match entry to show them
-        val historyWithByes = remember(stats, standing, tournament, selectedRound) {
+        val historyWithByes = remember(stats, standing, tournament, snapshotRound) {
             val existingRounds = stats.stats.map { it.round }.toSet()
-            val requested = standing.player.requestedByes.filter { it in 1..selectedRound && it !in existingRounds }
+            val requested = standing.player.requestedByes.filter { it in 1..snapshotRound && it !in existingRounds }
                 .map { r ->
                     com.example.chesspairmobile.data.models.PlayerMatchStat(
                         round = r,
@@ -295,11 +276,12 @@ fun StandingsScreen(
             title = {
                 Column {
                     Text(standing.player.name, fontWeight = FontWeight.Bold)
-                    Text("Through Round $selectedRound", style = MaterialTheme.typography.bodyMedium)
+                    Text(if (snapshotRound > 0) "Through Round $snapshotRound" else "No rounds started", style = MaterialTheme.typography.bodyMedium)
                     standing.player.title?.let {
                         Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (standing.player.withdrawn) Text("Withdrawn", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         standing.player.rating?.let {
                             Text("Rating $it", style = MaterialTheme.typography.labelSmall)
                         }
@@ -314,6 +296,14 @@ fun StandingsScreen(
                 Column(
                     modifier = Modifier.verticalScroll(rememberScrollState())
                 ) {
+                    tiebreakColumns(tiebreakOrder).forEach { column ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                            Text(column.description, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            Spacer(Modifier.width(8.dp))
+                            Text(column.format(standing), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     if (historyWithByes.isEmpty()) {
                         Text("No games played yet", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
@@ -372,7 +362,7 @@ fun StandingsScreen(
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         textAlign = TextAlign.Center,
-                                        color = resColor
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                             }
@@ -397,7 +387,7 @@ fun StandingsScreen(
 }
 
 @Composable
-fun StandingRow(index: Int, standing: PlayerStanding, columns: List<TiebreakColumn>, scrollState: ScrollState, onClick: () -> Unit = {}) {
+fun StandingRow(index: Int, standing: PlayerStanding, columns: List<TiebreakColumn>, onClick: () -> Unit = {}) {
     val podiumColor = when (index) {
         0 -> GoldMedal
         1 -> SilverMedal
@@ -413,7 +403,6 @@ fun StandingRow(index: Int, standing: PlayerStanding, columns: List<TiebreakColu
 
     Surface(
         modifier = Modifier.fillMaxWidth()
-            .then(if (standing.player.withdrawn) Modifier.alpha(0.55f) else Modifier)
             .clickable(onClick = onClick),
         color = bgColor
     ) {
@@ -450,13 +439,15 @@ fun StandingRow(index: Int, standing: PlayerStanding, columns: List<TiebreakColu
                 )
             }
 
-            Column(Modifier.width(120.dp)) {
+            Column(Modifier.weight(1f)) {
                 Text(
                     standing.player.name,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
                     textDecoration = if (standing.player.withdrawn) TextDecoration.LineThrough else TextDecoration.None
                 )
+                if (standing.player.withdrawn) Text("Withdrawn", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 standing.player.rating?.let {
                     Text("$it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -464,17 +455,17 @@ fun StandingRow(index: Int, standing: PlayerStanding, columns: List<TiebreakColu
 
             Text(
                 "${standing.score}",
-                Modifier.width(48.dp),
-                style = MaterialTheme.typography.bodyMedium,
+                Modifier.width(56.dp),
+                style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
 
-            Row(Modifier.weight(1f).horizontalScroll(scrollState)) { columns.forEach { col ->
+            Row { columns.forEach { col ->
                 Text(
                     col.format(standing),
-                    Modifier.width(56.dp),
-                    style = MaterialTheme.typography.bodySmall,
+                    Modifier.width(72.dp),
+                    style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center
                 )
             }
@@ -498,6 +489,6 @@ private fun tiebreakColumns(order: List<TiebreakType>): List<TiebreakColumn> = o
         TiebreakType.MOST_WINS -> TiebreakColumn("W", "W: Most wins") { "${it.mostWins}" }
         TiebreakType.PROGRESSIVE -> TiebreakColumn("Prog", "Prog: Progressive") { "%.1f".format(it.progressive) }
         TiebreakType.DIRECT_ENCOUNTER -> TiebreakColumn("DE", "DE: Direct encounter") { "%.1f".format(it.directEncounter) }
-        else -> null
+        TiebreakType.RATING -> TiebreakColumn("Rtg", "Rtg: Rating") { it.player.rating?.toString() ?: "—" }
     }
 }

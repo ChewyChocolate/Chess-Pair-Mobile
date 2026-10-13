@@ -34,6 +34,51 @@ fun canUpdateResult(status: String, currentRound: Int, matchRound: Int, correcti
     (status == "ACTIVE" && matchRound == currentRound) ||
         (status in listOf("ACTIVE", "COMPLETED") && matchRound <= currentRound && correctionRound == matchRound)
 
+fun roundCompletionIssue(type: String, teamEvent: Boolean, matches: List<Match>, teams: List<Team> = emptyList()): String? {
+    if (matches.isEmpty()) return "Generate pairings before completing this round."
+    val pending = matches.count { it.result == null }
+    if (pending > 0) return "$pending results remaining"
+    if (type == "KNOCKOUT" && !teamEvent && matches.any { it.result == MatchResult.DRAW }) {
+        return "Resolve knockout draws with a playoff, then enter the deciding result."
+    }
+    if (type == "KNOCKOUT" && teamEvent) {
+        val playerTeams = teams.flatMap { team -> team.playerIds.map { it to team.id } }.toMap()
+        val gamePoints = calculateTeamScores(teams, matches).second
+        val tied = matches.groupBy { it.teamMatchId }.values.any { boards ->
+            val teamIds = boards.flatMap { listOfNotNull(playerTeams[it.whiteId], playerTeams[it.blackId]) }.distinct()
+            teamIds.size == 2 && gamePoints[teamIds[0]] == gamePoints[teamIds[1]]
+        }
+        if (tied) return "Resolve tied team matches with a playoff, then enter the deciding board results."
+    }
+    return null
+}
+
+fun supportsForcedPairings(type: String, teamEvent: Boolean): Boolean = type == "SWISS" && !teamEvent
+
+fun forcedPairingIssue(pair: ForcedPairing, existing: List<ForcedPairing>, players: List<Player>): String? {
+    val activeIds = players.filter { it.active && !it.withdrawn }.map { it.id }.toSet()
+    if (pair.whiteId == pair.blackId || pair.whiteId !in activeIds || pair.blackId !in activeIds) {
+        return "Choose two different active players."
+    }
+    val assigned = existing.flatMap { listOf(it.whiteId, it.blackId) }.toSet()
+    if (pair.whiteId in assigned || pair.blackId in assigned) return "A player is already in a forced pairing."
+    return null
+}
+
+fun standingsSnapshotRound(round: Int, matches: List<Match>): Int =
+    matches.filter { it.round <= round }.maxOfOrNull { it.round } ?: 0
+
+fun standingsRoundLabel(round: Int, matches: List<Match>): String {
+    val throughRound = matches.filter { it.round <= round }
+    if (throughRound.none { it.round == round }) {
+        val previous = throughRound.maxOfOrNull { it.round }
+        return if (previous == null) "Round $round has not started · no results yet"
+        else "Round $round has not started · standings through Round $previous" +
+            if (throughRound.any { it.result == null }) " · provisional" else ""
+    }
+    return "Standings through Round $round" + if (throughRound.any { it.result == null }) " · provisional" else ""
+}
+
 fun parseByeRounds(text: String, totalRounds: Int): List<Int>? {
     if (text.isBlank()) return emptyList()
     val rounds = text.split(',').map { it.trim().toIntOrNull() ?: return null }

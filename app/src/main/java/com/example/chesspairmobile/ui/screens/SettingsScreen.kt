@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -19,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
+import com.example.chesspairmobile.ui.components.LabeledCheckbox
 import com.example.chesspairmobile.data.models.AccelerationMode
 import com.example.chesspairmobile.data.models.TiebreakType
 import com.example.chesspairmobile.data.preferences.AppPreferences
@@ -132,7 +135,10 @@ fun SettingsScreen(
 
             // ---- Behavior ----
             SettingsSection(title = "Behavior") {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(
+                    value = settings.enableForfeitScoring, role = Role.Switch,
+                    onValueChange = { enabled -> scope.launch { preferences.setEnableForfeitScoring(enabled) } }
+                ), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Enable forfeit scoring", style = MaterialTheme.typography.bodyMedium)
                         Text(
@@ -143,9 +149,7 @@ fun SettingsScreen(
                     }
                     Switch(
                         checked = settings.enableForfeitScoring,
-                        onCheckedChange = {
-                            scope.launch { preferences.setEnableForfeitScoring(it) }
-                        }
+                        onCheckedChange = null
                     )
                 }
             }
@@ -186,14 +190,8 @@ fun SettingsScreen(
                 }) { Text(if (scoringSaved) "Scoring defaults saved" else "Save scoring defaults") }
                 Spacer(Modifier.height(12.dp))
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = settings.defaultAvoidClubs,
-                        onCheckedChange = {
-                            scope.launch { preferences.setDefaultAvoidClubs(it) }
-                        }
-                    )
-                    Text("Avoid club pairings by default")
+                LabeledCheckbox("Avoid club pairings by default", settings.defaultAvoidClubs) {
+                    scope.launch { preferences.setDefaultAvoidClubs(it) }
                 }
 
                 Spacer(Modifier.height(8.dp))
@@ -262,7 +260,7 @@ fun SettingsSection(
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            HorizontalDivider(Modifier.padding(vertical = 10.dp))
+            Spacer(Modifier.height(16.dp))
             content()
         }
     }

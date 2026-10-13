@@ -11,6 +11,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
@@ -89,6 +90,7 @@ fun ChessPairApp(
     val inTournament = activeTournament != null && !isSettings && currentRoute != "home"
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    var showSetupEditor by rememberSaveable(activeId) { mutableStateOf(false) }
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbarHostState.showSnackbar(it) } }
 
     val navItems = listOf(
@@ -106,7 +108,7 @@ fun ChessPairApp(
         topBar = {
             if (inTournament) {
                 TopAppBar(
-                    title = { Text(activeTournament!!.name, maxLines = 1) },
+                    title = { Text(activeTournament!!.name, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
                     navigationIcon = {
                         IconButton(onClick = { navController.navigate("home") { popUpTo("home"); launchSingleTop = true } }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Tournaments")
@@ -196,6 +198,7 @@ fun ChessPairApp(
                     teams = teams,
                     matches = matches,
                     plannedRounds = plannedRounds,
+                    onEditTournament = { showSetupEditor = true },
                     onNavigate = { route ->
                         navController.navigate(route) {
                             popUpTo("dashboard") { saveState = true }
@@ -251,12 +254,12 @@ fun ChessPairApp(
                     teams = teams,
                     matches = matches,
                     plannedRounds = plannedRounds,
+                    onEditTournament = { showSetupEditor = true },
                     onStartTournament = { viewModel.startTournament() },
                     onGeneratePairings = { round -> viewModel.generatePairings(round) },
                     onUpdateResult = { matchId, result, correctionRound -> viewModel.updateMatchResult(matchId, result, correctionRound) },
                     onCompleteRound = {
-                        viewModel.completeRound()
-                        if (activeTournament?.currentRound == activeTournament?.totalRounds) {
+                        if (viewModel.completeRound() && activeTournament?.currentRound == activeTournament?.totalRounds) {
                             navController.navigate("standings") { launchSingleTop = true }
                         }
                     },
@@ -291,6 +294,25 @@ fun ChessPairApp(
                     onThemeChanged = {}
                 )
             }
+        }
+    }
+    if (showSetupEditor && activeTournament?.status == "SETUP") {
+        key(activeTournament.id) {
+            CreateTournamentDialog(
+                initialTournament = activeTournament,
+                onDismiss = { showSetupEditor = false },
+                onCreate = { name, type, isTeam, rounds, tc, pts, avoidClubs, autoCalc, manual, section, tiebreaks, accel, extra ->
+                    val edited = activeTournament.copy(
+                        name = name, type = type.name, isTeamTournament = isTeam, totalRounds = rounds,
+                        timeControl = tc, section = section, pointsForWin = pts.first,
+                        pointsForDraw = pts.second, pointsForLoss = pts.third,
+                        avoidClubPairings = avoidClubs, autoCalculateRounds = autoCalc,
+                        manualRoundOverride = manual, tiebreakOrder = Converters().fromTiebreakList(tiebreaks),
+                        accelerationMode = accel.name, swissExtraRound = extra
+                    )
+                    if (viewModel.saveTournamentSetup(edited)) showSetupEditor = false
+                }
+            )
         }
     }
 }

@@ -7,6 +7,64 @@ import org.junit.Test
 class TournamentWorkflowTest {
     private val players = listOf(Player(id = "a", name = "A"), Player(id = "b", name = "B"))
 
+    @Test fun `knockout round requires deciding results before either advancing or finishing`() {
+        val drawn = listOf(Match(round = 1, whiteId = "a", blackId = "b", result = MatchResult.DRAW))
+        assertNotNull(roundCompletionIssue("KNOCKOUT", false, drawn))
+        assertNull(roundCompletionIssue("SWISS", false, drawn))
+        assertNull(roundCompletionIssue("KNOCKOUT", true, drawn))
+        val decided = drawn.map { it.copy(result = MatchResult.BLACK_WIN) }
+        assertNull(roundCompletionIssue("KNOCKOUT", false, decided))
+        assertEquals(listOf("b"), generateKnockout(players, decided, 2).map { it.whiteId })
+        assertNotNull(roundCompletionIssue("SWISS", false, emptyList()))
+    }
+
+    @Test fun `bye results must count in round completeness`() {
+        val board = Match(round = 1, whiteId = "a", blackId = "b", result = MatchResult.WHITE_WIN)
+        val bye = Match(round = 1, whiteId = "c", result = MatchResult.BYE)
+        assertNull(roundCompletionIssue("SWISS", false, listOf(board, bye)))
+        assertNotNull(roundCompletionIssue("SWISS", false, listOf(board, bye.copy(result = null))))
+    }
+
+    @Test fun `team knockout allows drawn boards but requires an aggregate winner`() {
+        val teams = listOf(Team(id = "one", name = "One", playerIds = listOf("a", "a2")),
+            Team(id = "two", name = "Two", playerIds = listOf("b", "b2")))
+        val boards = listOf(Match(round = 1, whiteId = "a", blackId = "b", result = MatchResult.DRAW, teamMatchId = "match"),
+            Match(round = 1, whiteId = "b2", blackId = "a2", result = MatchResult.DRAW, teamMatchId = "match"))
+        assertNotNull(roundCompletionIssue("KNOCKOUT", true, boards, teams))
+        assertNull(roundCompletionIssue("SWISS", true, boards, teams))
+        assertNull(roundCompletionIssue("KNOCKOUT", true, boards.mapIndexed { index, match ->
+            if (index == 1) match.copy(result = MatchResult.WHITE_WIN) else match
+        }, teams))
+    }
+
+    @Test fun `forced pairings are supported only in individual Swiss and never overlap`() {
+        assertTrue(supportsForcedPairings("SWISS", false))
+        assertFalse(supportsForcedPairings("SWISS", true))
+        assertFalse(supportsForcedPairings("ROUND_ROBIN", false))
+        assertFalse(supportsForcedPairings("KNOCKOUT", false))
+        val pair = ForcedPairing("a", "b")
+        assertNull(forcedPairingIssue(pair, emptyList(), players))
+        assertNotNull(forcedPairingIssue(pair, listOf(ForcedPairing("b", "c")), players))
+        assertNotNull(forcedPairingIssue(ForcedPairing("a", "a"), emptyList(), players))
+        assertNotNull(forcedPairingIssue(pair, emptyList(), players.map { it.copy(withdrawn = true) }))
+    }
+
+    @Test fun `standings distinguish an undrawn round from complete and provisional results`() {
+        assertEquals("Round 1 has not started · no results yet", standingsRoundLabel(1, emptyList()))
+        val completed = listOf(Match(round = 1, whiteId = "a", blackId = "b", result = MatchResult.WHITE_WIN))
+        assertEquals("Standings through Round 1", standingsRoundLabel(1, completed))
+        assertEquals("Round 2 has not started · standings through Round 1", standingsRoundLabel(2, completed))
+        val pending = completed + Match(round = 2, whiteId = "a", blackId = "b")
+        assertEquals("Standings through Round 2 · provisional", standingsRoundLabel(2, pending))
+        assertEquals(0, standingsSnapshotRound(1, emptyList()))
+        assertEquals(1, standingsSnapshotRound(2, completed))
+        assertEquals(2, standingsSnapshotRound(2, pending))
+        val roster = players.map { it.copy(requestedByes = listOf(2)) }
+        val actualRound = standingsSnapshotRound(2, completed)
+        val scores = calculateStandings(roster, completed, 1.0, 0.5, 0.0, emptyList(), actualRound)
+        assertEquals(1.0, scores.first { it.player.id == "a" }.score, 0.0)
+    }
+
     @Test fun `team readiness requires two valid nonempty teams`() {
         assertNotNull(startRequirement(players, emptyList(), true))
         assertNotNull(startRequirement(players, listOf(Team(name = "One", playerIds = listOf("a", "b"))), true))

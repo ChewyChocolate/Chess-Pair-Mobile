@@ -29,7 +29,8 @@ val ALL_TIEBREAKS = listOf(
     TiebreakInfo(TiebreakType.BUCHHOLZ_CUT1, "Buchholz Cut-1", "Buchholz dropping lowest opponent"),
     TiebreakInfo(TiebreakType.SONNEBORN_BERGER, "Sonneborn-Berger", "Sum of defeated opponents' scores + half of drawn"),
     TiebreakInfo(TiebreakType.MOST_WINS, "Most Wins", "Most game wins (excluding byes)"),
-    TiebreakInfo(TiebreakType.PROGRESSIVE, "Progressive", "Sum of cumulative scores after each round")
+    TiebreakInfo(TiebreakType.PROGRESSIVE, "Progressive", "Sum of cumulative scores after each round"),
+    TiebreakInfo(TiebreakType.RATING, "Rating", "Higher player rating")
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -37,7 +38,8 @@ val ALL_TIEBREAKS = listOf(
 fun TiebreakConfigPanel(
     tiebreakOrder: List<TiebreakType>,
     onTiebreakOrderChanged: (List<TiebreakType>) -> Unit,
-    tournamentType: TournamentType? = null
+    tournamentType: TournamentType? = null,
+    title: String = "Tiebreak settings"
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -48,12 +50,12 @@ fun TiebreakConfigPanel(
                 null, Modifier.size(18.dp)
             )
             Spacer(Modifier.width(4.dp))
-            Text("Tiebreak Settings (${tiebreakOrder.size})")
+            Text("$title (${tiebreakOrder.size})")
         }
 
         if (expanded) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp)) {
+            Column(Modifier.fillMaxWidth()) {
+                Column {
                     Text("Use the arrows to reorder and × to remove. Add from the list below.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -87,6 +89,7 @@ fun TiebreakConfigPanel(
                                 onTiebreakOrderChanged(new)
                             }
                         )
+                        if (index < tiebreakOrder.lastIndex) HorizontalDivider()
                     }
 
                     if (tiebreakOrder.isEmpty()) {
@@ -145,49 +148,50 @@ fun TiebreakRow(
 ) {
     Surface(
         Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        tonalElevation = 1.dp
+        color = androidx.compose.ui.graphics.Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface
     ) {
-        Row(
-            Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.surfaceVariant
-            ) {
-                Text(
-                    "${index + 1}",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(label, style = MaterialTheme.typography.bodyMedium)
-                if (description != null) {
-                    Text(description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        "${index + 1} of $count",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                    if (description != null) {
+                        Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
-
-            // Arrow buttons
-            if (onMoveUp != null) {
-                IconButton(onClick = onMoveUp, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Default.KeyboardArrowUp, "Move $label up", Modifier.size(20.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                // Keep controls on their own line so the criterion has room at larger font sizes.
+                if (onMoveUp != null) {
+                    IconButton(onClick = onMoveUp, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.KeyboardArrowUp, "Move $label up", Modifier.size(20.dp))
+                    }
+                } else {
+                    Spacer(Modifier.size(48.dp))
                 }
-            } else {
-                Spacer(Modifier.size(48.dp))
-            }
-            if (onMoveDown != null) {
-                IconButton(onClick = onMoveDown, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Default.KeyboardArrowDown, "Move $label down", Modifier.size(20.dp))
+                if (onMoveDown != null) {
+                    IconButton(onClick = onMoveDown, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.KeyboardArrowDown, "Move $label down", Modifier.size(20.dp))
+                    }
+                } else {
+                    Spacer(Modifier.size(48.dp))
                 }
-            } else {
-                Spacer(Modifier.size(48.dp))
-            }
-            IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Default.Close, "Remove $label", Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
+                IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Default.Close, "Remove $label", Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }

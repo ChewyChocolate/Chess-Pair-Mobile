@@ -11,7 +11,7 @@ import androidx.compose.ui.platform.LocalContext
 @Composable
 fun ChessPairMobileTheme(
     darkTheme: Boolean? = null,
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val isDark = darkTheme ?: isSystemInDarkTheme()

@@ -27,6 +27,114 @@ class UiUxScreensTest {
     private val teams = listOf(TeamEntity("one", "t", "Northside", "[\"b\",\"a\"]"), TeamEntity("two", "t", "Westside", "[]"))
     private val matches = listOf(MatchEntity("match", "t", 1, "a", "b", "WHITE_WIN", 1, "tm", false, null))
 
+    @Test fun knockoutDrawBlocksCompletionAndOffersDecidingOutcomes() {
+        compose.setContent { ChessPairMobileTheme(dynamicColor = false, darkTheme = false) {
+            RoundsScreen(tournament.copy(type = "KNOCKOUT"), players, matches = matches.map { it.copy(result = "DRAW") },
+                onStartTournament = {}, onGeneratePairings = {}, onUpdateResult = { _, _, _ -> },
+                onCompleteRound = {}, onRollbackRound = {}, onSwapPlayers = { _, _, _, _ -> })
+        } }
+        compose.onNodeWithText("Resolve knockout draws").assertIsNotEnabled()
+        compose.onNodeWithText("½–½").assertDoesNotExist()
+        compose.onNodeWithText("1–0").assertIsDisplayed()
+        compose.onNodeWithText("0–1").assertIsDisplayed()
+    }
+
+    @Test fun unsupportedFormatsDoNotOfferForcedPairings() {
+        compose.setContent { ChessPairMobileTheme(dynamicColor = false, darkTheme = false) {
+            RoundsScreen(tournament.copy(type = "ROUND_ROBIN"), players, matches = matches,
+                onStartTournament = {}, onGeneratePairings = {}, onUpdateResult = { _, _, _ -> },
+                onCompleteRound = {}, onRollbackRound = {}, onSwapPlayers = { _, _, _, _ -> })
+        } }
+        compose.onNodeWithContentDescription("More").performClick()
+        compose.onNodeWithText("Forced pairings…").assertDoesNotExist()
+    }
+
+    @Test fun setupEditorPreservesExistingConfigurationAndSavesChanges() {
+        var savedName: String? = null
+        var savedPoints: Triple<Double, Double, Double>? = null
+        compose.setContent { ChessPairMobileTheme(dynamicColor = false, darkTheme = false) {
+            CreateTournamentDialog(onDismiss = {}, initialTournament = tournament.copy(status = "SETUP", pointsForWin = 3.0),
+                onCreate = { name, _, _, _, _, points, _, _, _, _, _, _, _ -> savedName = name; savedPoints = points })
+        } }
+        compose.onNodeWithText("Tournament name").performTextReplacement("Edited Open")
+        compose.onNodeWithText("Save tournament").performClick()
+        assertEquals("Edited Open", savedName)
+        assertEquals(Triple(3.0, 0.5, 0.0), savedPoints)
+    }
+
+    @Test fun checkboxLabelIsTheToggleTarget() {
+        compose.setContent { ChessPairMobileTheme(dynamicColor = false, darkTheme = false) {
+            CreateTournamentDialog({}, { _, _, _, _, _, _, _, _, _, _, _, _, _ -> })
+        } }
+        compose.onNodeWithText("Calculate rounds from roster").assertIsOn().performClick().assertIsOff()
+        compose.onNodeWithText("Number of rounds").assertIsDisplayed()
+    }
+
+    @Test fun missingByeResultCanBeRecoveredInCurrentRound() {
+        var result: MatchResult? = null
+        compose.setContent { ChessPairMobileTheme(dynamicColor = false, darkTheme = false) {
+            RoundsScreen(tournament, players, matches = listOf(matches.single().copy(blackId = null, result = null)),
+                onStartTournament = {}, onGeneratePairings = {}, onUpdateResult = { _, selected, _ -> result = selected },
+                onCompleteRound = {}, onRollbackRound = {}, onSwapPlayers = { _, _, _, _ -> })
+        } }
+        compose.onNodeWithText("Restore bye result").performClick()
+        assertEquals(MatchResult.BYE, result)
+    }
+
+    @Test fun roundPickerOpensRecordedRoundsForReview() {
+        compose.setContent { ChessPairMobileTheme(darkTheme = false) {
+            RoundsScreen(tournament.copy(currentRound = 2), players, matches = matches,
+                onStartTournament = {}, onGeneratePairings = {}, onUpdateResult = { _, _, _ -> },
+                onCompleteRound = {}, onRollbackRound = {}, onSwapPlayers = { _, _, _, _ -> })
+        } }
+        compose.onNodeWithText("Round 2 / 5").performClick()
+        compose.onNodeWithText("Round 1").performClick()
+        compose.onNodeWithText("Round 1 / 5").assertIsDisplayed()
+        compose.onNodeWithText("Correct results").assertIsDisplayed()
+        compose.onNodeWithText("Alexandra Montgomery").assertIsDisplayed()
+    }
+
+    @Test fun closingBoardSearchRestoresTheUnfilteredList() {
+        compose.setContent { ChessPairMobileTheme(darkTheme = false) {
+            RoundsScreen(tournament, players, matches = matches,
+                onStartTournament = {}, onGeneratePairings = {}, onUpdateResult = { _, _, _ -> },
+                onCompleteRound = {}, onRollbackRound = {}, onSwapPlayers = { _, _, _, _ -> })
+        } }
+        compose.onNodeWithContentDescription("Find board or player").performClick()
+        compose.onNodeWithText("Find board or player").performTextInput("Unknown player")
+        compose.onNodeWithText("No boards match this filter").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Close board search").performClick()
+        compose.onNodeWithText("Alexandra Montgomery").assertIsDisplayed()
+        compose.onNodeWithText("No boards match this filter").assertDoesNotExist()
+    }
+
+    @Test fun compactStandingsKeepsTiebreaksAvailableInTableAndHistory() {
+        compose.setContent { ChessPairMobileTheme(darkTheme = false) {
+            StandingsScreen(tournament, players, matches, onExportCsv = { _, _ -> "csv" })
+        } }
+        compose.onNodeWithText("BH").assertDoesNotExist()
+        compose.onNodeWithText("All tiebreaks").performClick()
+        compose.onNodeWithText("BH").assertExists()
+        compose.onNodeWithText("All tiebreaks").performClick()
+        compose.onNodeWithText("BH").assertDoesNotExist()
+        compose.onNodeWithText("Alexandra Montgomery").performClick()
+        compose.onNodeWithText("BH: Buchholz").assertIsDisplayed()
+    }
+
+    @Test fun compactResultOptionsStillSupportForfeitAndClear() {
+        var selected: MatchResult? = null
+        compose.setContent { ChessPairMobileTheme(darkTheme = false) {
+            var current by remember { mutableStateOf<MatchResult?>(null) }
+            ResultSelector(current, { selected = it; current = it })
+        } }
+        compose.onNodeWithContentDescription("More result options").performClick()
+        compose.onNodeWithText("White wins by forfeit").performClick()
+        assertEquals(MatchResult.FORFEIT_BLACK, selected)
+        compose.onNodeWithContentDescription("More result options").performClick()
+        compose.onNodeWithText("Clear result").performClick()
+        assertNull(selected)
+    }
+
     private fun capture(name: String) {
         compose.waitForIdle()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
